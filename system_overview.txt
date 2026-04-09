@@ -1,0 +1,97 @@
+NOOR - REAL ESTATE ASSISTANT SYSTEM
+
+A premium mobile-based autonomous assistant designed to support luxury property discovery, contextual real estate interactions, and basic portfolio management through voice and text input.
+
+OVERVIEW
+
+NOOR is a completely voice-enabled application that allows users to search the Qatari real estate market, receive proactive contextual insights, and perform property-related actions using natural conversational language.
+
+The system processes user input (voice or text), leverages device sensors to interpret environmental intent, and returns structured results such as visual property listings, live dashboard data, or booking actions.
+
+CORE FUNCTIONALITY
+
+User Interaction
+
+Primary voice input for frictionless property-related queries
+Keyboard text input toggle as a fallback mechanism
+Fluid conversational flow capable of retaining context
+Haptic synchronization pulsing alongside synthetic speech
+
+Property Discovery & Contextual Awareness
+
+Search for properties using natural language
+Filter results based on criteria such as location (West Bay, Lusail, The Pearl), type, and rooms
+Geo-fenced intelligence: utilizes GPS and Compass heading to proactively provide neighborhood insights, distance to metro hubs, and local property data
+Display results in structured, dynamic UI cards
+
+Booking Support
+
+Initiate property viewing requests via voice or text commands
+Basic scheduling workflows based on user input parameters
+
+Language Handling
+
+Autonomous detection of input language (English or Arabic)
+Dynamic UI direction flipping (Right-To-Left for Arabic, Left-To-Right for English)
+Responds in the detected language natively with distinct high-fidelity neural voice profiles
+
+Asset Dashboard
+
+Interactive concierge panel for viewing active leases
+Automated payment schedules securely presented in UI bottom sheets
+Premium profile details natively localized in English and Arabic
+
+SYSTEM BEHAVIOR
+
+User provides input (voice or text)
+System transcribes voice to text locally using optimized models
+Input is combined with device sensor data (GPS, Heading) to determine intent context
+Backend generates a response via a reasoning engine:
+  - Property search results or analytics OR
+  - Action (e.g., booking request)
+Response pipeline executes concurrently:
+  - UI elements (datasheets, cards, lists) are injected
+  - High-speed audio output (cloud-assisted neural text-to-speech) streams back to the device
+
+TECHNICAL STACK
+
+Frontend
+
+Flutter (mobile application) utilizing glassmorphic and dark mode styling guidelines
+Device Plugins: Geolocator, Compass, Vibration, Record, Audioplayers
+
+Backend
+
+FastAPI (Python-based API)
+Concurrent WebSockets for zero-latency bidirectional streaming
+
+AI / Processing
+
+Speech-to-Text: Faster-Whisper (Base model for ultra-fast offline recognition)
+Reasoning Engine: Llama 3 70B via Groq API for rapid inference
+Text-to-Speech: Edge-TTS (Microsoft Azure) for zero-latency, highly realistic multilingual neural voice synthesis
+
+Data Layer
+
+Redis (Semantic response caching)
+Qdrant (Vector database for property embeddings and high-speed similarity search)
+
+SYSTEM DESIGN APPROACH
+
+Orb-first interaction model emphasizing reduced screen-tapping and maximum voice engagement
+Modular backend architecture allowing parallel execution of text and audio streams
+Cloud-assisted audio execution for maximum speed, paired with local transcription for privacy
+Focus on real-time responsiveness and an executive user experience
+
+LIMITATIONS (CURRENT VERSION)
+
+Limited deeper conversational branches beyond strict real estate scope
+Booking flow routes to draft requests rather than full transaction handling
+Predictive pricing and AR walkthroughs remain in development
+Device requires active internet connection for the high-fidelity cloud TTS rendering
+
+SUMMARY
+
+NOOR is an autonomous luxury real estate concierge that allows users to search the market, view their active portfolios, and perform basic actions using true natural language.
+
+The current implementation leverages extreme-speed cloud audio generation, concurrent websocket logic, device context integration, and bilingual RTL support to deliver a zero-latency white-glove digital experience.

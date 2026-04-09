@@ -1,0 +1,45 @@
+# 🧠 NOOR AI Concierge - Git Ignore
+
+# 🐍 Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+ENV/
+env/
+.env
+.flaskenv
+noor.db
+*.sqlite3
+storage/qdrant/
+
+# 📱 Flutter / Frontend
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+frontend/build/
+*.apk
+*.aab
+*.ipa
+
+# 🛠️ IDEs & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 🐳 Docker
+.docker/
+
+# 📜 Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
