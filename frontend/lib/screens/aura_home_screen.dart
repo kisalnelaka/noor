@@ -45,6 +45,7 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
   
   String _language = "en"; 
   bool _wakeWordEnabled = false;
+  String _userName = "User"; // 🧑‍💼 Dynamic Personalization
 
   @override
   void initState() {
@@ -56,6 +57,11 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
   Future<void> _loadConversation() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('conversation_history');
+    final userStoredName = prefs.getString('user_full_name');
+    if (userStoredName != null) {
+      setState(() { _userName = userStoredName; });
+    }
+
     if (saved != null && saved.isNotEmpty) {
       setState(() {
         _conversation = List<Map<String, dynamic>>.from(jsonDecode(saved));
@@ -80,7 +86,7 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
     setState(() {
       _conversation.add({
         'type': 'text_stream',
-        'content': '$greeting How can I assist with your real estate needs today?',
+        'content': '$greeting $_userName. How can I assist with your real estate needs today?',
         'is_user': false,
         'is_complete': true
       });
@@ -107,6 +113,14 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
 
     print("Connecting to: $wsUrl");
     _wsService.connect(wsUrl); 
+
+    // 🚀 Personalize Session
+    _wsService.sendMessage(jsonEncode({
+      "type": "set_profile",
+      "full_name": _userName, 
+      "priorities": "High ROI & Modern Living"
+    }));
+
     _wsService.messages.listen((data) { 
       final type = data['type'];
 
@@ -135,6 +149,16 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
           }
           _thinkingStatus = ""; // 🛡️ Ensure status is cleared
         } 
+        else if (type == 'user_input') {
+          _conversation.add({
+            'type': 'text_stream',
+            'content': data['content'],
+            'is_user': true,
+            'is_complete': true
+          });
+          _thinkingStatus = "Processing...";
+          _orbState = OrbState.idle;
+        }
         else if (type == 'ui_trigger') {
           _thinkingStatus = "";
           _orbState = OrbState.idle;
@@ -145,8 +169,9 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
           if (widgetType == 'show_property' || widgetType == 'property_card') {
             _lastFoundProperty = Map<String, dynamic>.from(widgetData as Map);
             
-            // 🛡️ SMART ATTACHMENT: If last msg is user or empty, create a placeholder
-            if (_conversation.isEmpty || _conversation.last['is_user'] == true) {
+            // 🚀 V5: Ensure property cards ALWAYS get their own bubble or attach to NOOR's last response
+            // Never attach to a greeting or a user message.
+            if (_conversation.isEmpty || _conversation.last['is_user'] == true || _conversation.length < 2) {
               _conversation.add({
                 'type': 'text_stream',
                 'content': 'I have identified a premium listing that matches your criteria:',
@@ -155,7 +180,7 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
                 'has_property': true,
                 'property_data': _lastFoundProperty
               });
-            } else if (!_conversation.last['is_user']) {
+            } else {
                _conversation.last['has_property'] = true;
                _conversation.last['property_data'] = _lastFoundProperty;
             }

@@ -27,4 +27,5 @@ class AgentState(TypedDict):
     
     # Session Memory (V2)
     last_property_id: str    # ID of the last mentioned property
+    user_name: str           # User's full name for personalization
     user_prefs: dict         # Persistent user preferences (e.g. { "area": "West Bay" })

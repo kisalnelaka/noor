@@ -9,6 +9,7 @@ from app.agents.states import AgentState
 from app.api import auth
 import os
 import tempfile
+import uuid
 import json
 import base64
 import subprocess
@@ -97,8 +98,10 @@ app.mount("/docs", StaticFiles(directory="sample_docs"), name="docs")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     session_id = "user_demo_session_123"
+    session_id = str(uuid.uuid4())
     last_property_id = None
     user_prefs = {}
+    full_name = "Kisal" # Default Demo Name
     current_language = "en" # Default
     is_speaking = False # 🛡️ Speaking lock for echo suppression
     
@@ -135,6 +138,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 # ✨ Echo Shield: Drop wake-words if NOOR is currently talking
                 if payload.get("type") == "audio_input" and payload.get("is_wake_word") == True and is_speaking:
                     print("[NOOR] Speaking lockout active. Dropping background burst.", flush=True)
+                    continue
+
+                # ✨ Handle Profile Identification
+                if payload.get("type") == "set_profile":
+                    user_prefs["full_name"] = payload.get("full_name", "Kisal")
+                    user_prefs["email"] = payload.get("email", "")
+                    print(f"[NOOR] Profile identified: {user_prefs['full_name']}", flush=True)
+                    continue
+
+                # ✨ Handle Profile Identification
+                if payload.get("type") == "set_profile":
+                    full_name = payload.get("full_name", "Kisal")
+                    print(f"[NOOR] Profile identified: {full_name}", flush=True)
                     continue
 
                 # 🧩 Handle Playback Complete Sync from Phone
@@ -257,6 +273,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         final_response="",
                         ui_commands=[],
                         last_property_id=last_property_id,
+                        user_name=full_name, # 🧑‍💼 Personalized Name
                         user_prefs=user_prefs
                     )
                     
@@ -277,6 +294,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # 🚀 SHUTTER: ENGAGE!
                 is_speaking = True 
+
+                # Safety: Auto-reset speaking lock after 15s if no pulse is received
+                async def auto_reset_lock():
+                    await asyncio.sleep(15)
+                    nonlocal is_speaking
+                    if is_speaking:
+                        is_speaking = False
+                        print("[NOOR] Safety timeout: Speaking lockout released.", flush=True)
+                
+                asyncio.create_task(auto_reset_lock())
 
                 # 🤯 Feature: Parallel Text & Audio Pipelining
                 async def stream_text():
@@ -337,8 +364,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         print(f"[NOOR] Total Audio Failure: {e}", flush=True)
 
 
-                # Execute Text and Audio tasks concurrently
-                await asyncio.gather(stream_text(), handle_audio())
+                # Execute Text and Audio tasks concurrently with error resilience
+                try:
+                    await asyncio.gather(stream_text(), handle_audio())
+                except Exception as gather_err:
+                    print(f"[NOOR] Gather Tasks Error: {gather_err}", flush=True)
                 
                 # 🛡️ Release shutter after streaming (or wait for frontend confirmation)
                 is_speaking = True # Keep True for now, will be reset by 'playback_complete' or a timeout if needed

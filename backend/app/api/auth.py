@@ -77,7 +77,11 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         )
     
     access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "full_name": user.full_name # 🚀 Added for frontend personalization
+    }
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(

@@ -28,15 +28,13 @@ class _VoiceOrbState extends State<VoiceOrb> with TickerProviderStateMixin {
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      value: 1.0, // Fixed size
-      duration: const Duration(milliseconds: 1500),
-    );
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
 
     _rotationController = AnimationController(
       vsync: this,
-      value: 0.0, // Fixed rotation
-      duration: const Duration(seconds: 3),
-    );
+      duration: const Duration(seconds: 10),
+    )..repeat();
   }
 
   @override
@@ -180,13 +178,13 @@ class _VoiceOrbState extends State<VoiceOrb> with TickerProviderStateMixin {
   List<Color> _getOrbColors(OrbState state) {
     switch (state) {
       case OrbState.listening:
-        return [AuraTheme.accentBlue.withOpacity(0.8), Colors.black];
+        return [AuraTheme.accentBlue.withOpacity(0.8), AuraTheme.accentBlue.withOpacity(0.3)];
       case OrbState.thinking:
-        return [AuraTheme.accentPastelPurple.withOpacity(0.8), Colors.black];
+        return [AuraTheme.accentPastelPurple.withOpacity(0.8), AuraTheme.accentPastelPurple.withOpacity(0.3)];
       case OrbState.speaking:
-        return [Colors.white24, Colors.black];
+        return [AuraTheme.accentBlue, AuraTheme.accentBlue.withOpacity(0.5)];
       default:
-        return [const Color(0xFF2C2C35), Colors.black];
+        return [AuraTheme.textSecondary.withOpacity(0.1), AuraTheme.background];
     }
   }
 }

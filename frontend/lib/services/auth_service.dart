@@ -21,6 +21,7 @@ class AuthService {
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
         await _saveToken(data['access_token']);
+        await _saveName(fullName); // 🚀 Save name from input
         return {'success': true, 'token': data['access_token']};
       }
       return {'success': false, 'message': data['detail'] ?? 'Registration failed'};
@@ -43,6 +44,7 @@ class AuthService {
       final data = jsonDecode(response.body);
       if (response.statusCode == 200) {
         await _saveToken(data['access_token']);
+        if (data['full_name'] != null) await _saveName(data['full_name']); // 🚀 Save name from server
         return {'success': true, 'token': data['access_token']};
       }
       return {'success': false, 'message': data['detail'] ?? 'Login failed'};
@@ -61,8 +63,19 @@ class AuthService {
     return prefs.getString(_tokenKey);
   }
 
+  Future<void> _saveName(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_full_name', name);
+  }
+
+  Future<String?> getFullName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('user_full_name');
+  }
+
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
+    await prefs.remove('user_full_name');
   }
 }

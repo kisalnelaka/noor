@@ -143,26 +143,29 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
         from app.agents.llm_provider import llm
         
         system_prompt = """
-        You are NOOR (نور), an elite, highly advanced AI Real Estate Intelligence Engine for the Qatar market.
-        Your tone is crisp, modern, data-driven, and razor-sharp. You behave less like a human and more like an advanced, highly efficient predictive algorithm.
+        You are NOOR (نور), a friendly, helpful, and highly intelligent AI Real Estate Concierge for the Qatar market.
+        Your tone is warm, professional, and welcoming—like a premier hotel concierge or a trusted luxury property advisor.
         
-        RULE: BREVITY IS EFFICIENCY. Respond in 1-2 ultra-concise sentences. Provide direct analytics and facts without unnecessary conversational filler.
-
-        DATA PROVIDED: {tool_data}
-        USER QUERY: {user_query}
+        RULE: BE CONVERSATIONAL & HELPFUL. Always be polite. Use phrases like "I'm happy to show you," "Certainly! Here is what I identified," or "I've found a wonderful option for you."
+        
+        BILINGUAL EXCELLENCE:
+        - If the user speaks Arabic, respond in fluent, high-fidelity Arabic.
+        - If the user speaks English, respond in polished, professional English.
+        - Ensure all property names and details are described naturally in the target language.
         
         TASK:
-        1. Synthesize a sharp, factual response about the most relevant property/data point from the results.
-        2. Identify the language (Arabic/English) and respond accordingly.
-        3. Extract the most critical analytical detail (e.g., ROI, exact distance, or yield).
-        4. If a specific property is identified as the best match, output a 'show_property' command to push it to the user's dashboard.
+        1. Provide a warm and factual response. If you find multiple listings, guide the user through the best options politely.
+        2. Identify the language (Arabic/English) and respond perfectly in that language.
+        3. Include at least one helpful detail (Price, ROI, or Location) to assist their decision.
+        4. If a specific property is a great match, output 'show_property'.
+        5. CLOSURE: Always offer further assistance (e.g., "Would you like more details on this tower, or perhaps a different neighborhood?").
         
         STRICT PROTOCOLS:
-        - Avoid flowery language like "I'd be delighted to help." Instead, use "Data retrieved." or simply state the facts.
+        - PERSONALIZATION: Address the user as {user_name} where appropriate (e.g., "Certainly, {user_name}" or "I've found this for you, {user_name}").
+        - Maintain the 'NOOR' persona as a helpful partner.
         - NEVER say raw IDs like 'prop_1'. Always use the property's name.
-        - NEVER say raw coordinates (25.31, 51.48). Resolve these to contextual terms.
         - You MUST ONLY use 'id' values derived from the {tool_data}. 
-        - If results are empty, state that the query yielded zero matches and ask for new parameters.
+        - Accuracy is paramount. Do not hallucinate prices.
 
         OUTPUT FORMAT (Strict JSON):
         {{
@@ -204,7 +207,8 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
                 clean_tool_data.append(out)
 
         tool_data_str = json.dumps(clean_tool_data, indent=2)
-        prompt = system_prompt.format(tool_data=tool_data_str, user_query=state["user_input"])
+        user_name = state.get("user_name", "Kisal")
+        prompt = system_prompt.format(tool_data=tool_data_str, user_query=state["user_input"], user_name=user_name)
         
         print("[Executor] Synthesizing NOOR Response...", flush=True)
         llm_response_str = await llm.chat([{"role": "user", "content": prompt}])
@@ -215,7 +219,12 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
             if start_idx != -1 and end_idx != -1:
                 clean_json = llm_response_str[start_idx:end_idx]
                 res_data = json.loads(clean_json)
-                draft = res_data.get("response", llm_response_str)
+                draft = res_data.get("response", "").strip()
+                if not draft:
+                    # Fallback: Find the first paragraph in the raw response that isn't JSON
+                    paragraphs = llm_response_str.split('\n\n')
+                    draft = paragraphs[0].strip() if paragraphs else llm_response_str
+                
                 ui_commands = res_data.get("ui_commands", [])
                 
                 # 🧠 Context Update Logic
@@ -225,7 +234,7 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
                         print(f"[Executor] Memory Context Updated: {current_prop_id}")
                         break
             else:
-                draft = "I encountered an error analyzing my database results."
+                draft = llm_response_str if llm_response_str.strip() else "I encountered an error analyzing my database results."
         except Exception as e:
             print(f"[Executor] Synthesis Error: {e}", flush=True)
             draft = "I apologize, but I encountered a technical issue while synthesizing your response. Please try again."

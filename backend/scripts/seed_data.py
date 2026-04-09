@@ -59,14 +59,30 @@ def seed_db():
     props = []
     for i in range(50): # Expanded to 54 total properties
         dist = random.choice(districts)
-        name = f"{random.choice(tower_names)} {random.choice(['Tower', 'Residences', 'Plaza', 'Gardens'])} {i+10}"
+        tower_names = [
+            ("Azure", "أزور"), ("Oasis", "أوسيس"), ("Marina", "مارينا"), 
+            ("Platinum", "بلاتينيوم"), ("Onyx", "أونيكس"), ("Crystal", "كريستال"), 
+            ("Radiant", "راديانت"), ("Titanium", "تيتانيوم"), ("Emerald", "إيميرالد"), 
+            ("Sapphire", "سافاير"), ("Velvet", "فيلفيت")
+        ]
+        tower_eng, tower_arb = random.choice(tower_names)
+        suffix_eng, suffix_arb = random.choice([("Tower", "برج"), ("Residences", "ريزيدنس"), ("Plaza", "بلازا"), ("Gardens", "حدائق")])
+        name = f"{tower_eng} {suffix_eng} {i+10} ({tower_arb} {suffix_arb} {i+10})"
         
-        # 🏙️ Dynamic image assignment based on district
-        img_url = "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-        if dist['name'] == "The Pearl":
-            img_url = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
-        elif dist['name'] == "Lusail":
-            img_url = "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80"
+        # 🏙️ Diversified Media Pool for NOOR V5
+        media_pool = [
+            "https://images.unsplash.com/photo-1574362848149-11496d93a7c7?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1560185127-6ed189bf02f4?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600585154542-63793e4334f5?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        ]
+        img_url = random.choice(media_pool)
 
         props.append(Property(
             name=name,
