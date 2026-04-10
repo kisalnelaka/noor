@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
@@ -18,6 +18,21 @@ class VirtualTourScreen extends StatefulWidget {
 
 class _VirtualTourScreenState extends State<VirtualTourScreen> {
   double _offset = 0.0;
+  ImageInfo? _imageInfo;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final imageProvider = NetworkImage(widget.imageUrl);
+    final stream = imageProvider.resolve(createLocalImageConfiguration(context));
+    stream.addListener(ImageStreamListener((info, synchronousCall) {
+      if (mounted) {
+        setState(() {
+          _imageInfo = info;
+        });
+      }
+    }));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,20 +41,23 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
       body: Stack(
         children: [
           // 🌏 360° Panorama Engine (Custom Panner)
-          GestureDetector(
-            onHorizontalDragUpdate: (details) {
-              setState(() {
-                _offset += details.delta.dx * 0.002;
-              });
-            },
-            child: CustomPaint(
-              painter: PanoramaPainter(
-                imageProvider: NetworkImage(widget.imageUrl),
-                offset: _offset,
+          if (_imageInfo == null)
+            const Center(child: CircularProgressIndicator(color: AuraTheme.accentBlue))
+          else
+            GestureDetector(
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _offset += details.delta.dx * 0.002;
+                });
+              },
+              child: CustomPaint(
+                painter: PanoramaPainter(
+                  image: _imageInfo!.image,
+                  offset: _offset,
+                ),
+                child: Container(),
               ),
-              child: Container(),
             ),
-          ),
 
           // 💎 Glassmorphic Overlay
           Positioned(
@@ -47,7 +65,7 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   decoration: BoxDecoration(
@@ -67,7 +85,7 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(widget.title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                            Text(widget.title.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.white)),
                             const Text("360° VIRTUAL WALKTHROUGH", style: TextStyle(fontSize: 9, color: Colors.white60)),
                           ],
                         ),
@@ -99,29 +117,17 @@ class _VirtualTourScreenState extends State<VirtualTourScreen> {
 }
 
 class PanoramaPainter extends CustomPainter {
-  final ImageProvider imageProvider;
+  final ui.Image image;
   final double offset;
-  ImageStream? _imageStream;
-  ImageInfo? _imageInfo;
 
-  PanoramaPainter({required this.imageProvider, required this.offset});
+  PanoramaPainter({required this.image, required this.offset});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (_imageInfo == null) {
-      _imageStream ??= imageProvider.resolve(ImageConfiguration.empty);
-      _imageStream!.addListener(ImageStreamListener((ImageInfo info, bool synchronousCall) {
-        _imageInfo = info;
-      }));
-      return;
-    }
-
-    final image = _imageInfo!.image;
     final double imgWidth = image.width.toDouble();
     final double imgHeight = image.height.toDouble();
 
-    // 🪐 Sphere Simulation Logic
-    // We render the image twice to handle wrapping
+    // 🪐 Sphere Simulation Logic Ensure normalized positive modulo for bidirectional wrapping
     final double viewWidth = size.width;
     final double viewHeight = size.height;
     
@@ -129,21 +135,21 @@ class PanoramaPainter extends CustomPainter {
     final double scale = viewHeight / imgHeight;
     final double scaledWidth = imgWidth * scale;
 
-    double currentX = (offset * scaledWidth) % scaledWidth;
+    final double normalizedX = ((offset * scaledWidth) % scaledWidth + scaledWidth) % scaledWidth;
 
-    // Draw segment 1
+    // Draw segment 1 (Right side)
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, imgWidth, imgHeight),
-      Rect.fromLTWH(currentX, 0, scaledWidth, viewHeight),
+      Rect.fromLTWH(normalizedX, 0, scaledWidth, viewHeight),
       Paint(),
     );
 
-    // Draw segment 2 (wrap around)
+    // Draw segment 2 (Left side wrap around)
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, imgWidth, imgHeight),
-      Rect.fromLTWH(currentX - scaledWidth, 0, scaledWidth, viewHeight),
+      Rect.fromLTWH(normalizedX - scaledWidth, 0, scaledWidth, viewHeight),
       Paint(),
     );
   }

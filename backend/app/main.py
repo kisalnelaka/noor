@@ -1,443 +1,253 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-import time
+import os
+import sys
+import json
+import base64
 import asyncio
-from app.agents.memory import memory
-from app.agents.graph import aura_app
-from app.agents.states import AgentState
-from app.api import auth
-import os
 import tempfile
-import uuid
-import json
-import base64
+import logging
 import subprocess
-from contextlib import asynccontextmanager
+import time
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from app.db.database import get_db, engine
+from app.db.models import Base
+from app.agents.graph import aura_app as app_graph
+from app.agents.states import AgentState
+import uuid
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 🚀 Auto-Seed Database if empty
-    from sqlalchemy import inspect
-    from app.db.database import engine
-    from scripts.seed_data import seed_db, generate_mock_pdfs
-    
-    inspector = inspect(engine)
-    if not inspector.has_table("users"):
-        print("[Startup] Creating database tables...")
-        from app.db.models import Base
-        Base.metadata.create_all(bind=engine)
-        
-    if not inspector.has_table("properties"):
-        print("[Startup] Database needs seeding. Running auto-seed...")
-        from scripts.seed_data import seed_db, generate_mock_pdfs
-        seed_db()
-        generate_mock_pdfs()
-    else:
-        print("[Startup] Database already initialized.")
-    
-    yield
-import json
+# Initialize FastAPI
+app = FastAPI(title="NOOR AI Concierge Core")
 
-import base64
-import os
-import tempfile
-import json
-import redis
-
-try:
-    redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
-except Exception as e:
-    print(f"[NOOR] Redis not available: {e}")
-    redis_client = None
-
-app = FastAPI(
-    title="NOOR - Luxury AI Real Estate Concierge",
-    description="God-Tier Multi-Agent API for Real Estate in Qatar",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
+@app.on_event("startup")
+async def startup_event():
+    # Ensure tables exist. This is silent and does not seed data.
+    from app.db.models import Base
+    from app.db.database import engine
+    Base.metadata.create_all(bind=engine)
 
-def normalize_query(text: str) -> str:
-    """Cleans up STT transcribed text: strips filler words and fixes formatting."""
-    fillers = ["uh", "um", "ah", "like", "actually", "basically"]
-    cleaned = text.lower().strip()
-    for filler in fillers:
-        cleaned = cleaned.replace(f" {filler} ", " ")
-    return cleaned.strip(".?! ")
+# Database tables are managed externally by the seeder script for initial data population.
 
-# Load AI Models
+
+@app.get("/properties/featured")
+async def get_featured_properties(db: Session = Depends(get_db)):
+    from app.db.models import Property, Unit
+    from sqlalchemy import func
+    props = db.query(Property.id, Property.name, Property.address, Property.image_url, Property.latitude.label("lat"), Property.longitude.label("lng"), func.min(Unit.rent_price).label("price")).join(Unit).group_by(Property.id).limit(5).all()
+    valid_images = [
+        "1600596542815-ffad4c1539a9",
+        "1512917774080-9991f1c4c750",
+        "1600607687920-4e2a09cf159d",
+        "1580587771525-78b9dba3b914",
+        "1600585154340-be6161a56a0c"
+    ]
+    return [{"id": f"prop_{p.id}", "name": p.name, "address": p.address, "image_url": f"https://images.unsplash.com/photo-{valid_images[i % len(valid_images)]}?auto=format&fit=crop&q=80&w=1200", "price": f"QAR {int(p.price):,}/mo", "lat": p.lat, "lng": p.lng, "sqft": "2,450", "beds": 3, "baths": 2, "pois": "Shopping (2m), Metro (5m)"} for i, p in enumerate(props)]
+
+from pydantic import BaseModel
+from fastapi import Form
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+
+@app.post("/auth/register")
+async def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    from app.db.models import User
+    existing = db.query(User).filter(User.email == req.email).first()
+    if existing:
+        return {"access_token": "token", "full_name": existing.full_name} # Existing user logic
+    
+    new_user = User(
+        email=req.email,
+        hashed_password=req.password, # For demo, raw storage
+        full_name=req.full_name
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"access_token": f"token_{new_user.id}", "full_name": new_user.full_name}
+
+@app.post("/auth/login")
+async def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    from app.db.models import User
+    user = db.query(User).filter(User.email == username).first()
+    if user and user.hashed_password == password:
+        return {"access_token": f"token_{user.id}", "full_name": user.full_name}
+    return {"detail": "Invalid credentials", "statusCode": 401}
+
+@app.get("/user/portfolio")
+async def get_portfolio(db: Session = Depends(get_db)):
+    # In a full app, we'd use the access token. 
+    # For this demo/walkthrough, we fetch the first user or default.
+    from app.db.models import User, Booking
+    user = db.query(User).first()
+    name = user.full_name if user else "Noor User"
+    email = user.email if user else "demo@noor.qa"
+    
+    return {
+        "full_name": name,
+        "email": email,
+        "bookings": [{"property_name": "Azure Manor 1", "time": "10 May 2026, 14:00", "status": "Confirmed"}],
+        "documents": [{"type": "lease", "name": "Digital Lease Agreement", "status": "Signed"}]
+    }
+
+# Load Models
 try:
     from faster_whisper import WhisperModel
-    print("[NOOR] Loading WhisperModel (base) - Instant Demo Initialization...", flush=True)
-    # Downgraded to base + VAD for ultra-fast English/Arabic recognition
-    whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
-except Exception as e:
-    print(f"Warning: WhisperModel not loaded: {e}")
-    whisper_model = None
-
-# 🚀 XTTS completely removed to liberate CPU. Using Edge-TTS.
-tts_model = "edge-tts"
-
-# Serve PDFs for the frontend
-import os
-os.makedirs("sample_docs", exist_ok=True)
-app.mount("/docs", StaticFiles(directory="sample_docs"), name="docs")
+    print("[NOOR] Loading Whisper (medium)...", flush=True)
+    whisper_model = WhisperModel("medium", device="cpu", compute_type="int8")
+except: whisper_model = None
 
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    session_id = "user_demo_session_123"
-    session_id = str(uuid.uuid4())
-    last_property_id = None
-    user_prefs = {}
-    full_name = "Kisal" # Default Demo Name
-    current_language = "en" # Default
-    is_speaking = False # 🛡️ Speaking lock for echo suppression
+    last_interaction_time = time.time()
     
+    session_id = str(uuid.uuid4())
+    await websocket.accept()
+    
+    # Session-Scoped State
+    session_state = {
+        "is_speaking": False,
+        "last_property_id": None,
+        "user_name": "Kisal",
+        "user_priorities": "Lifestyle & Premium Service",
+        "current_language": "en"
+    }
+    
+    chat_history = []
+    print(f"--- [NEW_SESSION] {session_id} ---", flush=True)
+
+    async def handle_message(payload: dict):
+        try:
+            if payload.get("type") == "set_profile":
+                session_state["user_name"] = payload.get("full_name", session_state["user_name"])
+                session_state["user_priorities"] = payload.get("priorities", session_state["user_priorities"])
+                print(f"[Profile] Active: {session_state['user_name']} | {session_state['user_priorities']}", flush=True)
+                return
+
+            if payload.get("type") == "playback_complete":
+                session_state["is_speaking"] = False
+                return
+
+            t_start = time.time()
+            content = ""
+            lat, lng = "none", "none"
+            loc = payload.get("location")
+            if loc and "," in loc:
+                lat, lng = loc.split(",", 1)
+            elif payload.get("lat") and payload.get("lng"):
+                lat, lng = payload.get("lat"), payload.get("lng")
+
+            # 🛠️ Fast-Path Greeting
+            raw_text = payload.get("text", "").lower() if payload.get("type") == "chat" else ""
+            if any(w in raw_text for w in ["hi", "hello", "good morning", "good evening", "hey"]):
+                greeting = "Hello! I'm NOOR, your AI Concierge. How can I assist you with Qatar's premium real estate today?"
+                await websocket.send_json({"type": "user_transcription", "text": payload.get("text")})
+                await websocket.send_json({"type": "text_stream", "content": greeting, "is_complete": True})
+                return
+
+            if payload.get("type") == "audio_input":
+                if session_state["is_speaking"]: 
+                    print("[NOOR] Ignoring audio input while speaking.", flush=True)
+                    return
+                    
+                audio_bytes = base64.b64decode(payload.get("audio_b64", ""))
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmp_audio:
+                    tmp_audio.write(audio_bytes)
+                    tmp_audio_path = tmp_audio.name
+                    
+                if whisper_model:
+                    t0_stt = time.time()
+                    segments, info = await asyncio.to_thread(
+                        whisper_model.transcribe, tmp_audio_path, beam_size=1, vad_filter=True,
+                        initial_prompt="Qatar, Doha, Lusail, West Bay, The Pearl, NOOR, عقارات, قطر, لوسيل"
+                    )
+                    t_stt = time.time() - t0_stt
+                    session_state["current_language"] = info.language if info.language in ["ar", "en"] else "en"
+                    content = " ".join([s.text for s in segments])
+                    await websocket.send_json({"type": "user_transcription", "text": content})
+                    os.unlink(tmp_audio_path)
+            
+            elif payload.get("type") == "chat":
+                content = payload.get("text", "")
+                await websocket.send_json({"type": "user_transcription", "text": content})
+
+            if not content or len(content.strip()) < 2: return
+
+            is_arabic = any(c in content for c in "بضصفغعهخحجدذرزسشصضطظعغفقكلمنهوي")
+            await websocket.send_json({"type": "status", "content": "Searching..."})
+
+            # Graph Input with 15s Watchdog
+            graph_input = f"[Language: {'ar' if is_arabic else 'en'}] [Priority: {session_state['user_priorities']}] [Location: {lat},{lng}] {content}"
+            initial_state = AgentState(
+                user_input=graph_input, session_id=session_id, chat_history=list(chat_history[-6:]), plan=[], current_step=0, tool_outputs=[],
+                draft_response="", is_valid=False, final_response="", ui_commands=[], 
+                last_property_id=session_state["last_property_id"], user_name=session_state["user_name"], user_prefs={"priorities": session_state["user_priorities"]}
+            )
+
+            try:
+                t0_agent = time.time()
+                result = await asyncio.wait_for(app_graph.ainvoke(initial_state), timeout=15.0)
+                t_agent = time.time() - t0_agent
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "text_stream", "content": "I apologize, my intelligence core is taking longer than usual. Please try again in a moment.", "is_complete": True})
+                return
+
+            final_response = result.get("draft_response", "I'm ready to help.")
+            translation = result.get("translation", "")
+            session_state["last_property_id"] = result.get("last_property_id")
+            
+            chat_history.append(f"User: {content}")
+            chat_history.append(f"NOOR: {final_response}")
+
+            # Stream & Speak
+            words = final_response.split(" ")
+            await websocket.send_json({"type": "text_stream", "content": (words.pop(0) + " ") if words else final_response, "is_complete": False})
+            
+            for cmd in result.get("ui_commands", []):
+                if isinstance(cmd, dict):
+                    await websocket.send_json({"type": "ui_trigger", "widget": cmd.get("action", "show_property"), "data": cmd})
+
+            async def stream_task():
+                for i, word in enumerate(words):
+                    await websocket.send_json({"type": "text_stream", "content": word + " ", "is_complete": (i == len(words)-1)})
+                    await asyncio.sleep(0.04)
+                await websocket.send_json({"type": "text_final", "translation": translation})
+
+            async def speak_task():
+                voice = "ar-QA-AmalNeural" if session_state["current_language"] == "ar" else "en-US-AvaNeural"
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_mp3:
+                    tmp_mp3_path = tmp_mp3.name
+                try:
+                    await asyncio.to_thread(subprocess.run, ["edge-tts", "--voice", voice, "--text", final_response, "--write-media", tmp_mp3_path], check=True, timeout=8)
+                    with open(tmp_mp3_path, "rb") as f:
+                        await websocket.send_json({"type": "audio_stream", "audio_b64": base64.b64encode(f.read()).decode('utf-8'), "language": session_state["current_language"]})
+                except Exception as e: print(f"[TTS] Error: {e}")
+                finally:
+                    if os.path.exists(tmp_mp3_path): os.unlink(tmp_mp3_path)
+
+            await asyncio.gather(stream_task(), speak_task())
+            session_state["is_speaking"] = True
+
+        except Exception as e:
+            print(f"[Handler Error] {e}", flush=True)
+
     try:
         while True:
             data = await websocket.receive_text()
-            
             try:
                 payload = json.loads(data)
-                
-                # 🏛️ V4: DOCUMENT INTELLIGENCE BRIDGE
-                if payload.get("type") == "document_query":
-                    doc_name = payload.get("document", "Lease")
-                    query = payload.get("content", "Explain this")
-                    print(f"[NOOR] Document Intelligence Query: {query} for {doc_name}", flush=True)
-                    
-                    await websocket.send_json({"type": "status", "content": f"Analyzing {doc_name}..."})
-                    
-                    # Call RAG tool directly for document context
-                    from app.tools.rag_tool import query_vector_database
-                    rag_response = query_vector_database.run(f"Regarding the document {doc_name}: {query}")
-                    
-                    # Stream the RAG response back as a text bubble
-                    words = rag_response.split(" ")
-                    for i, word in enumerate(words):
-                        await websocket.send_json({
-                            "type": "text_stream",
-                            "content": word + " ",
-                            "is_complete": (i == len(words) - 1)
-                        })
-                        await asyncio.sleep(0.02)
-                    continue
-
-                # ✨ Echo Shield: Drop wake-words if NOOR is currently talking
-                if payload.get("type") == "audio_input" and payload.get("is_wake_word") == True and is_speaking:
-                    print("[NOOR] Speaking lockout active. Dropping background burst.", flush=True)
-                    continue
-
-                # ✨ Handle Profile Identification
-                if payload.get("type") == "set_profile":
-                    user_prefs["full_name"] = payload.get("full_name", "Kisal")
-                    user_prefs["email"] = payload.get("email", "")
-                    print(f"[NOOR] Profile identified: {user_prefs['full_name']}", flush=True)
-                    continue
-
-                # ✨ Handle Profile Identification
-                if payload.get("type") == "set_profile":
-                    full_name = payload.get("full_name", "Kisal")
-                    print(f"[NOOR] Profile identified: {full_name}", flush=True)
-                    continue
-
-                # 🧩 Handle Playback Complete Sync from Phone
-                if payload.get("type") == "playback_complete":
-                    is_speaking = False
-                    print("[NOOR] Speech lockout released.", flush=True)
-                    continue
-
-                content = ""
-                
-                # Sync language with client preference
-                if payload.get("language"):
-                    current_language = payload.get("language")
-                
-                # 🤯 Feature: Audio Input via Whisper
-                if payload.get("type") == "audio_input":
-                    audio_b64 = payload.get("audio_b64", "")
-                    audio_bytes = base64.b64decode(audio_b64)
-                    
-                    await websocket.send_json({"type": "status", "content": "Transcribing voice..."})
-                    
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmp_audio:
-                        tmp_audio.write(audio_bytes)
-                        tmp_audio_path = tmp_audio.name
-                        
-                    if whisper_model:
-                        # ✨ Aura V2: Improved STT with VAD & Normalization
-                        import functools
-                        import subprocess
-                        transcribe_func = functools.partial(
-                            whisper_model.transcribe,
-                            tmp_audio_path,
-                            beam_size=5,
-                            vad_filter=True,
-                            vad_parameters=dict(min_silence_duration_ms=800), # 🛡️ Tuning: More aggressive silence detection
-                            initial_prompt="Qatar, Doha, Lusail, West Bay, Msheireb, The Pearl, NOOR, عقارات, قطر, الدوحة",
-                            language=None # Enable Autodetection
-                        )
-                        segments, info = await asyncio.to_thread(transcribe_func)
-                        detected_lang = info.language if info.language in ["ar", "en"] else "en"
-                        current_language = detected_lang
-                        print(f"[NOOR] Language Detected: {detected_lang}", flush=True)
-                        original_text = " ".join([segment.text for segment in segments])
-                        content = normalize_query(original_text)
-                        
-                        if payload.get("is_wake_word"):
-                            if "noor" not in content.lower():
-                                os.unlink(tmp_audio_path)
-                                continue
-                            else:
-                                print(f"[NOOR] Wake-word detected! (Heard: {content})", flush=True)
-                                await websocket.send_json({"type": "pulse", "intensity": 1})
-                                await websocket.send_json({"type": "status", "content": "Listening..."})
-                                await websocket.send_json({"type": "text_stream", "content": "Yes? I am here. ", "is_complete": True})
-                                os.unlink(tmp_audio_path)
-                                continue
-
-                        print(f"[NOOR] Transcribed: {content} (original: {original_text})", flush=True)
-                        
-                        if not content or len(content) < 2:
-                            repeat_msg = "I'm sorry, I didn't quite catch that. Could you repeat? (أعتذر، لم أسمعك جيداً. هل يمكنك التكرار؟)"
-                            await websocket.send_json({"type": "text_stream", "content": repeat_msg, "is_complete": True})
-                            os.unlink(tmp_audio_path)
-                            continue
-                        
-                        await websocket.send_json({"type": "user_input", "content": content})
-                        await asyncio.sleep(0.5)
-                    
-                    os.unlink(tmp_audio_path)
-                else:
-                    content = payload.get("content", "")
-                
-                # Extract NOOR Context (Geo-fencing & Profile)
-                lat = payload.get("lat")
-                lng = payload.get("lng")
-                heading = payload.get("heading")
-                # 🛡️ DEMO OVERRIDE: Prevent 401 Auth Crashing in demo
-                token = payload.get("token", "demo-token")
-                from app.core.security import verify_jwt_token
-                try:
-                    user_context = verify_jwt_token(token)
-                except Exception:
-                    # In demo mode, fallback to a standard profile
-                    user_context = {"user_id": 1, "priorities": "Standard"}
-                
-                priorities = user_context.get("priorities", "Standard")
-                
-                if not content:
-                    continue
-
-                # Signal "Thinking Mode 2.0"
-                thinking_msg = "NOOR is processing..."
-                if "horizon" in content.lower() or (last_property_id == "prop_1"):
-                    thinking_msg = "Consulting The Horizon Tower's intelligence feed..."
-                elif "vendome" in content.lower() or "lusail" in content.lower():
-                    thinking_msg = "Analyzing Place Vendôme and Lusail metrics..."
-                
-                await websocket.send_json({"type": "status", "content": thinking_msg})
-                
-                # 🤯 Zero-Latency Shutter: Disabled for 100% Demo Command Accuracy
-                fast_response = None
-                
-                if fast_response:
-                    await websocket.send_json({"type": "status", "content": "Instant NOOR Memory accessed."})
-                    final_response = fast_response
-                    result = {"final_response": final_response, "ui_commands": [], "last_property_id": last_property_id, "user_prefs": user_prefs}
-                else:
-                    # Pass to real LangGraph with Priority Prompt Injection
-                    augmented_input = f"[User Priority: {priorities}] [Location: {lat},{lng}] {content}"
-                    initial_state = AgentState(
-                        user_input=augmented_input,
-                        session_id=session_id,
-                        chat_history=[],
-                        plan=[],
-                        current_step=0,
-                        tool_outputs=[],
-                        draft_response="",
-                        critic_notes="",
-                        is_valid=False,
-                        final_response="",
-                        ui_commands=[],
-                        last_property_id=last_property_id,
-                        user_name=full_name, # 🧑‍💼 Personalized Name
-                        user_prefs=user_prefs
-                    )
-                    
-                    # We could stream graph steps, but for now we invoke and wait
-                    result = await aura_app.ainvoke(initial_state)
-                    final_response = result.get("final_response", "I'm sorry, I couldn't process that.")
-                    
-                    # Cache the response for future zero-latency
-                    if redis_client:
-                        try:
-                            redis_client.setex(f"noor_cache:{content.lower().strip()}", 3600, final_response)
-                        except:
-                            pass
-                
-                # Update persistent session state
-                last_property_id = result.get("last_property_id")
-                user_prefs = result.get("user_prefs", {})
-                
-                # 🚀 SHUTTER: ENGAGE!
-                is_speaking = True 
-
-                # Safety: Auto-reset speaking lock after 15s if no pulse is received
-                async def auto_reset_lock():
-                    await asyncio.sleep(15)
-                    nonlocal is_speaking
-                    if is_speaking:
-                        is_speaking = False
-                        print("[NOOR] Safety timeout: Speaking lockout released.", flush=True)
-                
-                asyncio.create_task(auto_reset_lock())
-
-                # 🤯 Feature: Parallel Text & Audio Pipelining
-                async def stream_text():
-                    words = final_response.split(" ")
-                    for i, word in enumerate(words):
-                        is_end = (i == len(words) - 1)
-                        await websocket.send_json({
-                            "type": "text_stream",
-                            "content": word + " ",
-                            "is_complete": is_end # 🛠️ Sync with frontend expectation
-                        })
-                        await asyncio.sleep(0.04) 
-                    
-                    # Safety Shutter: Close the bubble
-                    await websocket.send_json({"type": "text_final"})
-
-                async def handle_audio():
-                    # Send an initial pulse command for the Haptic sync kick-off
-                    await websocket.send_json({"type": "pulse", "intensity": 1})
-                    
-                    try:
-                        voice = "ar-QA-AmalNeural" if current_language == "ar" else "en-US-AriaNeural"
-                        # 🌪️ V5 Resilience: Try Fast Cloud TTS first
-                        try:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_mp3:
-                                tmp_mp3_path = tmp_mp3.name
-                            
-                            await asyncio.to_thread(
-                                subprocess.run,
-                                ["edge-tts", "--voice", voice, "--text", final_response, "--write-media", tmp_mp3_path],
-                                check=True, timeout=5
-                            )
-                        except Exception as cloud_err:
-                            print(f"[NOOR] Cloud TTS Failed (503), falling back to local espeak-ng: {cloud_err}")
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
-                                tmp_mp3_path = tmp_wav.name
-                            
-                            # Fallback: Local espeak-ng (robotic but reliable for the demo)
-                            # Using '-v ar' for Arabic fallback or default for English
-                            v_flag = "ar" if current_language == "ar" else "en-us"
-                            await asyncio.to_thread(
-                                subprocess.run,
-                                ["espeak-ng", "-v", v_flag, "-w", tmp_mp3_path, final_response],
-                                check=True
-                            )
-                        
-                        with open(tmp_mp3_path, "rb") as f:
-                            wav_bytes = f.read()
-                        wav_b64 = base64.b64encode(wav_bytes).decode('utf-8')
-                        if os.path.exists(tmp_mp3_path): os.unlink(tmp_mp3_path)
-                        
-                        await websocket.send_json({
-                            "type": "audio_stream",
-                            "audio_b64": wav_b64,
-                            "language": current_language
-                        })
-                    except Exception as e:
-                        print(f"[NOOR] Total Audio Failure: {e}", flush=True)
-
-
-                # Execute Text and Audio tasks concurrently with error resilience
-                try:
-                    await asyncio.gather(stream_text(), handle_audio())
-                except Exception as gather_err:
-                    print(f"[NOOR] Gather Tasks Error: {gather_err}", flush=True)
-                
-                # 🛡️ Release shutter after streaming (or wait for frontend confirmation)
-                is_speaking = True # Keep True for now, will be reset by 'playback_complete' or a timeout if needed
-
-                # 🧩 V5: Pure Data Relay — No mocks, no interception
-                ui_commands = result.get("ui_commands", [])
-                for cmd in ui_commands:
-                    action = cmd.get("action", "")
-                    
-                    if action == "show_property":
-                        # Send as property_card with full data from LLM
-                        await websocket.send_json({
-                            "type": "ui_trigger",
-                            "widget": "show_property",
-                            "data": cmd
-                        })
-                    elif action == "show_directions":
-                        # Extract lat/lng for Google Maps launch
-                        await websocket.send_json({
-                            "type": "ui_trigger",
-                            "widget": "show_directions",
-                            "data": {
-                                "lat": cmd.get("lat"),
-                                "lng": cmd.get("lng"),
-                                "name": cmd.get("name", "Property")
-                            }
-                        })
-                    elif action == "book_viewing":
-                        await websocket.send_json({
-                            "type": "ui_trigger",
-                            "widget": "book_viewing",
-                            "data": cmd
-                        })
-                    elif action == "show_trends":
-                        await websocket.send_json({
-                            "type": "ui_trigger",
-                            "widget": "trend_chart",
-                            "data": cmd
-                        })
-                    else:
-                        # book_viewing, show_calculator, share_property etc
-                        await websocket.send_json({
-                            "type": "ui_trigger",
-                            "widget": action,
-                            "data": cmd
-                        })
-                
-                # 🤯 Feature: Dynamic Follow-up Suggestions (Smart Chips)
-                chips = ["Show properties", "West Bay only", "Lusail deals"] # Default
-                response_lower = final_response.lower()
-                
-                if "horizon" in response_lower:
-                    chips = ["View Location", "Lease Summary", "Gym & Pool info"]
-                elif "maplewood" in response_lower:
-                    chips = ["Garden details", "Termination policy", "Lusail map"]
-                elif "loft" in response_lower or "industrial" in response_lower:
-                    chips = ["Smoking policy", "View availability", "Similar lofts"]
-                elif "amenities" in response_lower or "gym" in response_lower:
-                    chips = ["Properties with Gym", "Pool access rules", "Parking price"]
-                elif "lease" in response_lower or "contract" in response_lower:
-                    chips = ["Penalty details", "Notice period", "Deposit info"]
-                
-                await websocket.send_json({
-                    "type": "suggestions",
-                    "chips": chips
-                })
-
-            except json.JSONDecodeError:
-                print("Invalid JSON received.")
-                
+                asyncio.create_task(handle_message(payload))
+            except Exception as e:
+                print(f"[Loop Error] {e}", flush=True)
     except WebSocketDisconnect:
-        print("Client disconnected from NOOR feed.", flush=True)
+        print(f"[Disconnected] {session_id}")

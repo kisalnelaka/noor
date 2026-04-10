@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-class ChatBubble extends StatelessWidget {
+class ChatBubble extends StatefulWidget {
   final String content;
+  final String? translation;
   final bool isUser;
   final bool isComplete;
   final String? actionLabel;
@@ -11,6 +12,7 @@ class ChatBubble extends StatelessWidget {
   const ChatBubble({
     Key? key,
     required this.content,
+    this.translation,
     required this.isUser,
     this.isComplete = true,
     this.actionLabel,
@@ -18,9 +20,20 @@ class ChatBubble extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<ChatBubble> createState() => _ChatBubbleState();
+}
+
+class _ChatBubbleState extends State<ChatBubble> {
+  bool _showTranslation = false;
+
+  @override
   Widget build(BuildContext context) {
+    String displayedText = _showTranslation && widget.translation != null && widget.translation!.isNotEmpty
+        ? widget.translation!
+        : widget.content;
+
     return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: widget.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         constraints: BoxConstraints(
@@ -28,18 +41,18 @@ class ChatBubble extends StatelessWidget {
           minWidth: 80,
         ),
         child: Column(
-          crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: widget.isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              decoration: isUser 
+              decoration: widget.isUser 
                 ? BoxDecoration(
                     color: AuraTheme.accentBlue,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(20),
-                      topRight: const Radius.circular(20),
-                      bottomLeft: const Radius.circular(20),
-                      bottomRight: const Radius.circular(4),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                      bottomLeft: Radius.circular(20),
+                      bottomRight: Radius.circular(4),
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -62,34 +75,63 @@ class ChatBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    content.isEmpty ? "..." : content, // 🛡️ Anti-empty bubble
+                    displayedText.isEmpty ? "..." : displayedText,
                     style: TextStyle(
-                      color: isUser ? Colors.white : AuraTheme.textPrimary,
+                      color: widget.isUser ? Colors.white : AuraTheme.textPrimary,
                       fontSize: 15,
                       height: 1.45,
                       letterSpacing: 0.1,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  if (!isComplete)
+                  if (!widget.isComplete)
                     Padding(
                       padding: const EdgeInsets.only(top: 10.0),
                       child: SizedBox(
                         width: 14, height: 14,
                         child: CircularProgressIndicator(
                           strokeWidth: 1.2, 
-                          color: isUser ? Colors.white60 : AuraTheme.accentBlue
+                          color: widget.isUser ? Colors.white60 : AuraTheme.accentBlue
+                        ),
+                      ),
+                    ),
+                  
+                  // Translate Toggle
+                  if (!widget.isUser && widget.translation != null && widget.translation!.isNotEmpty && widget.isComplete)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _showTranslation = !_showTranslation),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.translate_rounded, 
+                              size: 12, 
+                              color: AuraTheme.accentBlue.withOpacity(0.8)
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _showTranslation ? "SHOW ORIGINAL" : "TRANSLATE",
+                              style: TextStyle(
+                                color: AuraTheme.accentBlue.withOpacity(0.8),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-            if (actionLabel != null && onAction != null)
+            if (widget.actionLabel != null && widget.onAction != null)
               Padding(
                 padding: const EdgeInsets.only(top: 10, left: 2, right: 2),
                 child: InkWell(
-                  onTap: onAction,
+                  onTap: widget.onAction,
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -111,7 +153,7 @@ class ChatBubble extends StatelessWidget {
                         const Icon(Icons.arrow_outward_rounded, size: 14, color: AuraTheme.textPrimary),
                         const SizedBox(width: 8),
                         Text(
-                          actionLabel!.toUpperCase(),
+                          widget.actionLabel!.toUpperCase(),
                           style: const TextStyle(
                             color: AuraTheme.textPrimary, 
                             fontSize: 10, 

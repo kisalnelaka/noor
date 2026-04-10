@@ -6,18 +6,22 @@ import 'package:noor/widgets/property_card.dart';
 import 'package:noor/widgets/map_preview.dart';
 import 'package:noor/widgets/calculator_card.dart';
 import 'package:noor/services/websocket_service.dart';
-import 'package:noor/config.dart'; // 🛠️ Fixed missing config import
+import 'package:noor/config.dart';
 import 'package:noor/widgets/trend_chart.dart';
-import 'package:record/record.dart'; // 🛠️ Fixed missing package import
+import 'package:record/record.dart';
 import 'package:noor/theme.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:noor/services/voice_interface_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io';
+import 'package:geolocator/geolocator.dart';
+import 'package:noor/services/auth_service.dart';
+import 'package:noor/screens/login_screen.dart';
 
 class AuraHomeScreen extends StatefulWidget {
   const AuraHomeScreen({Key? key}) : super(key: key);
@@ -35,45 +39,202 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
   bool _isListening = false;
   OrbState _orbState = OrbState.idle;
   String _thinkingStatus = "";
-  List<String> _suggestions = ["Find properties", "West Bay", "Near Me 📍"];
   List<Map<String, dynamic>> _conversation = [];
   final TextEditingController _searchController = TextEditingController();
   bool _isKeyboardMode = false;
   
-  // 🧩 V5: SEAMLESS UI - Property metadata is kept quiet until requested
   Map<String, dynamic>? _lastFoundProperty;
-  
-  String _language = "en"; 
-  bool _wakeWordEnabled = false;
-  String _userName = "User"; // 🧑‍💼 Dynamic Personalization
+  String _userName = "NOOR Member"; 
+  String _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+  String _sessionTitle = "New Conversation";
+
+  final _voiceService = VoiceInterfaceService();
+  final _authService = AuthService();
 
   @override
   void initState() {
     super.initState();
     _loadConversation();
     _initWebSocket();
+    _voiceService.triggerRecording.addListener(_onOrbTap);
+  }
+
+  @override
+  void dispose() {
+    _voiceService.triggerRecording.removeListener(_onOrbTap);
+    _wsService.disconnect();
+    _searchController.dispose();
+    _scrollController.dispose();
+    if (_isListening) _audioRecorder.stop();
+    _audioRecorder.dispose();
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   Future<void> _loadConversation() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('conversation_history');
     final userStoredName = prefs.getString('user_full_name');
     if (userStoredName != null) {
       setState(() { _userName = userStoredName; });
     }
 
-    if (saved != null && saved.isNotEmpty) {
-      setState(() {
-        _conversation = List<Map<String, dynamic>>.from(jsonDecode(saved));
-      });
-    } else {
-      _addNoorGreeting();
+    final sessionsJson = prefs.getString('chat_sessions_v2');
+    if (sessionsJson != null) {
+      List<dynamic> sessions = jsonDecode(sessionsJson);
+      if (sessions.isNotEmpty) {
+        var activeSession = sessions.last;
+        setState(() {
+          _sessionId = activeSession['id'];
+          _sessionTitle = activeSession['title'];
+          _conversation = List<Map<String, dynamic>>.from(activeSession['messages']);
+        });
+        return;
+      }
     }
+    _addNoorGreeting();
   }
 
   Future<void> _saveConversation() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('conversation_history', jsonEncode(_conversation));
+    List<dynamic> sessions = [];
+    final sessionsJson = prefs.getString('chat_sessions_v2');
+    if (sessionsJson != null) {
+      sessions = jsonDecode(sessionsJson);
+    }
+
+    int existingIndex = sessions.indexWhere((s) => s['id'] == _sessionId);
+    if (_sessionTitle == "New Conversation" && _conversation.length > 1) {
+      _sessionTitle = _conversation[1]['content'].toString().substring(0, min(30, _conversation[1]['content'].toString().length)) + "...";
+    }
+
+    final currentSessionData = {
+      'id': _sessionId,
+      'title': _sessionTitle,
+      'timestamp': DateTime.now().toIso8601String(),
+      'messages': _conversation,
+    };
+
+    if (existingIndex >= 0) {
+      sessions[existingIndex] = currentSessionData;
+    } else {
+      sessions.add(currentSessionData);
+    }
+
+    await prefs.setString('chat_sessions_v2', jsonEncode(sessions));
+  }
+
+  void _startNewSession() {
+    setState(() {
+      _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+      _sessionTitle = "New Conversation";
+      _conversation = [];
+      _addNoorGreeting();
+    });
+    _saveConversation();
+  }
+
+  void _loadSession(Map<String, dynamic> sessionData) {
+    setState(() {
+      _sessionId = sessionData['id'];
+      _sessionTitle = sessionData['title'];
+      _conversation = List<Map<String, dynamic>>.from(sessionData['messages']);
+    });
+    Navigator.pop(context);
+    _scrollToBottom();
+  }
+
+  void _showChatHistoryModal() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<dynamic> sessions = [];
+    final sessionsJson = prefs.getString('chat_sessions_v2');
+    if (sessionsJson != null) {
+      sessions = jsonDecode(sessionsJson);
+    }
+    
+    sessions = sessions.reversed.toList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: AuraTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AuraTheme.textSecondary.withOpacity(0.2), borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("CHAT HISTORY", style: TextStyle(color: AuraTheme.textSecondary, letterSpacing: 2, fontSize: 12, fontWeight: FontWeight.bold)),
+                TextButton.icon(
+                  onPressed: () { Navigator.pop(context); _startNewSession(); },
+                  icon: const Icon(Icons.add, size: 16, color: AuraTheme.accentBlue),
+                  label: const Text("NEW CHAT", style: TextStyle(color: AuraTheme.accentBlue, letterSpacing: 1, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const Divider(color: AuraTheme.borderLight),
+            Expanded(
+              child: sessions.isEmpty ? 
+                const Center(child: Text("No past conversations found.", style: TextStyle(color: AuraTheme.textSecondary))) :
+                ListView.builder(
+                  itemCount: sessions.length,
+                  itemBuilder: (context, index) {
+                    final session = sessions[index];
+                    final isActive = session['id'] == _sessionId;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(session['title'], style: TextStyle(color: isActive ? AuraTheme.accentBlue : AuraTheme.textPrimary, fontWeight: isActive ? FontWeight.bold : FontWeight.normal)),
+                      subtitle: Text(session['timestamp'].toString().split('T')[0], style: const TextStyle(color: AuraTheme.textSecondary, fontSize: 12)),
+                      trailing: isActive ? const Icon(Icons.check_circle, color: AuraTheme.accentBlue, size: 16) : null,
+                      onTap: () => _loadSession(session as Map<String, dynamic>),
+                    );
+                  },
+                ),
+            ),
+            const Divider(color: AuraTheme.borderLight),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              title: const Text("SIGN OUT", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              onTap: () async {
+                await _authService.logout();
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String> _getGeoLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return "none,none";
+      
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return "none,none";
+      }
+      if (permission == LocationPermission.deniedForever) return "none,none";
+      
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      return "${position.latitude},${position.longitude}";
+    } catch (e) {
+      print("Location fetch error: $e");
+      return "none,none";
+    }
   }
 
   void _addNoorGreeting() {
@@ -86,27 +247,24 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
     setState(() {
       _conversation.add({
         'type': 'text_stream',
-        'content': '$greeting $_userName. How can I assist with your real estate needs today?',
+        'content': "$greeting $_userName. How can I assist with your real estate needs today?",
+        'translation': 'مرحباً $_userName. كيف يمكنني مساعدتك في احتياجاتك العقارية اليوم؟',
         'is_user': false,
         'is_complete': true
       });
     });
-    _saveConversation();
   }
 
   Future<void> _initWebSocket() async {
+    String wsUrl = AuraConfig.wsUrl; 
+    
     final prefs = await SharedPreferences.getInstance();
-    String? savedUrl = prefs.getString('server_url');
-    String wsUrl = AuraConfig.wsUrl;
-
-    if (savedUrl != null && savedUrl.isNotEmpty) {
-      // Convert http(s)://... to ws(s)://... and ensure path is /ws/chat
-      String cleanUrl = savedUrl.trim();
-      if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
-      
-      if (cleanUrl.startsWith('https://')) {
+    final customUrl = prefs.getString('noor_api_url');
+    if (customUrl != null && customUrl.isNotEmpty) {
+      final cleanUrl = customUrl.replaceAll(RegExp(r'/docs$'), '').replaceAll(RegExp(r'/$'), '');
+      if (cleanUrl.startsWith('https')) {
         wsUrl = cleanUrl.replaceFirst('https://', 'wss://') + '/ws/chat';
-      } else if (cleanUrl.startsWith('http://')) {
+      } else if (cleanUrl.startsWith('http')) {
         wsUrl = cleanUrl.replaceFirst('http://', 'ws://') + '/ws/chat';
       }
     }
@@ -114,76 +272,66 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
     print("Connecting to: $wsUrl");
     _wsService.connect(wsUrl); 
 
-    // 🚀 Personalize Session
     _wsService.sendMessage(jsonEncode({
       "type": "set_profile",
       "full_name": _userName, 
-      "priorities": "High ROI & Modern Living"
+      "priorities": "Premium Lifestyle & Convenience"
     }));
 
     _wsService.messages.listen((data) { 
       final type = data['type'];
 
       setState(() {
-        if (type == 'text_stream') {
+        if (type == 'user_transcription') {
+          _conversation.add({
+            'type': 'text_stream',
+            'content': data['text'],
+            'is_user': true,
+            'is_complete': true
+          });
+          _thinkingStatus = "Searching...";
+        }
+        else if (type == 'text_stream') {
           final content = data['content'] ?? "";
-          if (content.trim().isEmpty) return; // 🛡️ Filter empty noise
+          if (content.trim().isEmpty) return; 
           
           _thinkingStatus = "";
           _orbState = OrbState.idle;
           
-          if (_conversation.isNotEmpty && _conversation.last['type'] == 'text_stream' && !(_conversation.last['is_complete'] ?? false)) {
+          if (_conversation.isNotEmpty && _conversation.last['type'] == 'text_stream' && !(_conversation.last['is_complete'] ?? false) && !(_conversation.last['is_user'] ?? false)) {
             _conversation.last['content'] += content;
           } else {
             _conversation.add({
               'type': 'text_stream',
               'content': content,
               'is_user': false,
-              'is_complete': false
+              'is_complete': false,
+              'property_data': null, 
             });
           }
         } 
         else if (type == 'text_final') {
-          if (_conversation.isNotEmpty && _conversation.last['type'] == 'text_stream') {
+          if (_conversation.isNotEmpty && _conversation.last['type'] == 'text_stream' && !(_conversation.last['is_user'] ?? false)) {
             _conversation.last['is_complete'] = true;
+            _conversation.last['translation'] = data['translation'] ?? "";
           }
-          _thinkingStatus = ""; // 🛡️ Ensure status is cleared
-        } 
-        else if (type == 'user_input') {
-          _conversation.add({
-            'type': 'text_stream',
-            'content': data['content'],
-            'is_user': true,
-            'is_complete': true
-          });
-          _thinkingStatus = "Processing...";
-          _orbState = OrbState.idle;
-        }
-        else if (type == 'ui_trigger') {
           _thinkingStatus = "";
-          _orbState = OrbState.idle;
-          
+        } 
+        else if (type == 'ui_trigger') {
           final widgetType = data['widget'];
           final widgetData = data['data'] ?? {};
-          
-          if (widgetType == 'show_property' || widgetType == 'property_card') {
+
+          if (widgetType == 'show_property') {
             _lastFoundProperty = Map<String, dynamic>.from(widgetData as Map);
-            
-            // 🚀 V5: Ensure property cards ALWAYS get their own bubble or attach to NOOR's last response
-            // Never attach to a greeting or a user message.
-            if (_conversation.isEmpty || _conversation.last['is_user'] == true || _conversation.length < 2) {
-              _conversation.add({
-                'type': 'text_stream',
-                'content': 'I have identified a premium listing that matches your criteria:',
-                'is_user': false,
-                'is_complete': true,
-                'has_property': true,
-                'property_data': _lastFoundProperty
-              });
-            } else {
-               _conversation.last['has_property'] = true;
-               _conversation.last['property_data'] = _lastFoundProperty;
+            if (_conversation.isNotEmpty && !(_conversation.last['is_user'] ?? false)) {
+              _conversation.last['property_data'] = _lastFoundProperty;
             }
+          }
+          else if (widgetType == 'show_properties_carousel') {
+             final properties = List<Map<String, dynamic>>.from(widgetData['properties'] ?? []);
+             if (_conversation.isNotEmpty && !(_conversation.last['is_user'] ?? false)) {
+               _conversation.last['property_data'] = properties;
+             }
           }
           else if (widgetType == 'show_directions') {
             final lat = widgetData['lat'];
@@ -192,20 +340,21 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
                launchUrl(Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng'), mode: LaunchMode.externalApplication);
             }
           }
-          else if (widgetType == 'share_property') {
-             Share.share('Check out this incredible property in Qatar. Found via NOOR AI Concierge.');
-          } else {
+          else if (widgetType == 'book_viewing') {
             _conversation.add({
               'type': 'ui_trigger',
-              'widget': widgetType,
+              'widget': 'book_viewing',
               'data': widgetData
             });
           }
+
+          _thinkingStatus = "";
+          _orbState = OrbState.idle;
         }
         else if (type == 'audio_stream') {
           try {
             _orbState = OrbState.speaking;
-            HapticFeedback.lightImpact(); // ⚡ Sync Haptic Kick-off
+            HapticFeedback.lightImpact(); 
             final audioBytes = base64Decode(data['audio_b64']);
             _audioPlayer.play(BytesSource(audioBytes)).then((_) {
               if (mounted) {
@@ -219,7 +368,7 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
         }
       });
       _scrollToBottom();
-      _saveConversation(); // 💾 Persist after every message
+      _saveConversation(); 
     });
   }
 
@@ -236,10 +385,8 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
       if (await _audioRecorder.hasPermission()) {
         final directory = await getTemporaryDirectory();
         final path = '${directory.path}/audio_query.m4a';
-        
         const config = RecordConfig(encoder: AudioEncoder.aacLc);
         await _audioRecorder.start(config, path: path);
-
         setState(() {
           _isListening = true;
           _orbState = OrbState.listening;
@@ -247,9 +394,7 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
         });
         HapticFeedback.mediumImpact();
       }
-    } catch (e) {
-      print("Start recording error: $e");
-    }
+    } catch (e) { print("Record start error: $e"); }
   }
 
   Future<void> _stopRecording() async {
@@ -260,39 +405,34 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
         _orbState = OrbState.idle;
         _thinkingStatus = "Processing...";
       });
-
       if (path != null) {
         final bytes = await File(path).readAsBytes();
-        final base64Audio = base64Encode(bytes);
+        final loc = await _getGeoLocation();
         _wsService.sendMessage(jsonEncode({
           "type": "audio_input",
-          "audio_b64": base64Audio,
-          "location": "25.3138407,51.4850558"
+          "audio_b64": base64Encode(bytes),
+          "location": loc
         }));
       }
-    } catch (e) {
-      print("Stop recording error: $e");
-    }
+    } catch (e) { print("Record stop error: $e"); }
   }
 
   void _onOrbTap() {
-    if (_isListening) {
-      _stopRecording();
-    } else {
-      _startRecording();
-    }
+    if (_isListening) { _stopRecording(); } else { _startRecording(); }
   }
 
-  void _onSearchSubmit(String val) {
+  void _onSearchSubmit(String val) async {
     if (val.trim().isEmpty) return;
     setState(() {
       _conversation.add({'type': 'text_stream', 'content': val, 'is_user': true, 'is_complete': true});
       _thinkingStatus = "Processing...";
     });
+    
+    final loc = await _getGeoLocation();
     _wsService.sendMessage(jsonEncode({
       "type": "chat",
       "text": val,
-      "location": "25.3138407,51.4850558"
+      "location": loc
     }));
     _searchController.clear();
   }
@@ -303,17 +443,13 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        maxChildSize: 0.95,
+        initialChildSize: 0.9,
         minChildSize: 0.5,
-        builder: (context, controller) => Container(
-          decoration: BoxDecoration(
-            color: AuraTheme.background,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            border: Border.all(color: AuraTheme.borderLight),
-          ),
+        maxChildSize: 0.95,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(color: AuraTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
           child: ListView(
-            controller: controller,
+            controller: scrollController,
             children: [
               const SizedBox(height: 12),
               Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AuraTheme.textSecondary.withOpacity(0.2), borderRadius: BorderRadius.circular(2)))),
@@ -330,24 +466,68 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
     );
   }
 
+  void _showPropertiesCarouselModal(List<Map<String, dynamic>> properties) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(color: AuraTheme.surface, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AuraTheme.textSecondary.withOpacity(0.2), borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              const Text("SWIPE TO EXPLORE", style: TextStyle(color: AuraTheme.textSecondary, fontSize: 10, letterSpacing: 2, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              Expanded(
+                child: PageView.builder(
+                  controller: PageController(viewportFraction: 0.9),
+                  itemCount: properties.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: SingleChildScrollView(
+                        controller: scrollController,
+                        child: PropertyCard(propertyData: properties[index], wsService: _wsService),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildConversationItem(Map<String, dynamic> item) {
     if (item['type'] == 'text_stream') {
+      final propertyData = item['property_data'];
+      final isList = propertyData is List;
+
       return ChatBubble(
         content: item['content'],
+        translation: item['translation'] ?? "",
         isUser: item['is_user'] == true,
         isComplete: item['is_complete'] == true,
-        actionLabel: item['has_property'] == true ? 'View Details' : null,
-        onAction: item['has_property'] == true ? () => _showPropertyModal(item['property_data']) : null,
+        actionLabel: propertyData != null ? (isList ? 'VIEW SET (${(propertyData as List).length})' : 'VIEW DETAILS') : null,
+        onAction: propertyData != null ? () {
+          if (isList) {
+            _showPropertiesCarouselModal(List<Map<String, dynamic>>.from(propertyData as List));
+          } else {
+            _showPropertyModal(propertyData as Map<String, dynamic>);
+          }
+        } : null,
       );
     } else if (item['type'] == 'ui_trigger') {
-      if (item['widget'] == 'map_view') {
-        return MapPreview(locationName: item['data']['location'] ?? 'Unknown Location');
-      } else if (item['widget'] == 'show_calculator') {
-        return CalculatorCard(price: item['data']['price']?.toDouble() ?? 3000000.0);
-      } else if (item['widget'] == 'show_trends' || item['widget'] == 'trend_chart') {
-        final List<double> history = List<double>.from(item['data']['history'] ?? [2.1, 2.3, 2.2, 2.5, 2.8, 3.1]);
-        return TrendChart(data: history, title: item['data']['district'] ?? 'Doha');
-      } else if (item['widget'] == 'book_viewing') {
+       if (item['widget'] == 'book_viewing') {
         return _buildBookingCard(item['data']);
       }
     }
@@ -369,12 +549,12 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
           const SizedBox(height: 24),
           const Divider(color: AuraTheme.borderLight),
           const SizedBox(height: 12),
-          Row(
+          const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.notifications_active_outlined, size: 14, color: AuraTheme.textSecondary),
-              const SizedBox(width: 8),
-              Text("I'VE ADDED THIS TO YOUR CALENDAR", style: const TextStyle(fontSize: 10, color: AuraTheme.textSecondary, letterSpacing: 1)),
+              Icon(Icons.notifications_active_outlined, size: 14, color: AuraTheme.textSecondary),
+              SizedBox(width: 8),
+              Text("I'VE ADDED THIS TO YOUR CALENDAR", style: TextStyle(fontSize: 10, color: AuraTheme.textSecondary, letterSpacing: 1)),
             ],
           ),
         ],
@@ -389,6 +569,19 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                   const Text("NOOR", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 2, color: AuraTheme.textPrimary)),
+                   IconButton(
+                     icon: const Icon(Icons.history_rounded, color: AuraTheme.textSecondary),
+                     onPressed: _showChatHistoryModal,
+                   )
+                ],
+              ),
+            ),
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
@@ -397,7 +590,6 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
                 itemBuilder: (context, index) => _buildConversationItem(_conversation[index]),
               ),
             ),
-            _buildThinkingIndicator(),
             _buildVoiceZone(),
           ],
         ),
@@ -405,101 +597,65 @@ class _AuraHomeScreenState extends State<AuraHomeScreen> {
     );
   }
 
-  Widget _buildThinkingIndicator() {
-    if (_thinkingStatus.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 1.5, color: AuraTheme.accentBlue)),
-          const SizedBox(width: 16),
-          Text(_thinkingStatus.toUpperCase(), style: Theme.of(context).textTheme.labelSmall),
-        ],
-      ),
-    );
-  }
-
   Widget _buildVoiceZone() {
-    // Determine status label text
-    String statusLabel = '';
-    if (_isListening) {
-      statusLabel = 'LISTENING...';
-    } else if (_thinkingStatus.isNotEmpty) {
-      statusLabel = _thinkingStatus.toUpperCase();
-    } else if (!_isKeyboardMode) {
-      statusLabel = 'TAP TO SPEAK';
-    }
+    String statusLabel = 'TAP THE BLUE ORB BELOW TO SPEAK';
+    if (_isListening) statusLabel = 'LISTENING...';
+    else if (_thinkingStatus.isNotEmpty) statusLabel = _thinkingStatus.toUpperCase();
+
+    // Propagate state to voice service so the MainLayout orb updates visually
+    _voiceService.isListening.value = _isListening;
+    _voiceService.status.value = statusLabel;
 
     return Container(
-      height: 200,
-      padding: const EdgeInsets.only(bottom: 24),
-      alignment: Alignment.center,
-      child: Stack(
-        alignment: Alignment.center,
+      padding: const EdgeInsets.only(bottom: 24, top: 16),
+      child: Column(
         children: [
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (!_isKeyboardMode)
-                GestureDetector(
-                  onTap: _onOrbTap,
-                  child: VoiceOrb(isListening: _isListening, state: _orbState),
-                ),
-              if (_isKeyboardMode)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: TextField(
-                    controller: _searchController,
-                    onSubmitted: _onSearchSubmit,
-                    autofocus: true,
-                    style: const TextStyle(color: AuraTheme.textPrimary, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Search properties...',
-                      hintStyle: TextStyle(color: AuraTheme.textSecondary.withOpacity(0.5)),
-                      prefixIcon: const Icon(Icons.search_rounded, color: AuraTheme.textSecondary, size: 20),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: AuraTheme.borderLight),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: AuraTheme.borderLight),
-                      ),
-                    ),
+          if (_isKeyboardMode) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: TextField(
+                controller: _searchController,
+                onSubmitted: _onSearchSubmit,
+                autofocus: true,
+                style: const TextStyle(color: AuraTheme.textPrimary, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Message NOOR...',
+                  hintStyle: TextStyle(color: AuraTheme.textSecondary.withOpacity(0.4)),
+                  prefixIcon: const Icon(Icons.maps_home_work_outlined, color: AuraTheme.textSecondary),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.send_rounded, color: AuraTheme.accentBlue),
+                    onPressed: () => _onSearchSubmit(_searchController.text),
                   ),
-                ),
-              const SizedBox(height: 12),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: Text(
-                  statusLabel,
-                  key: ValueKey(statusLabel),
-                  style: TextStyle(
-                    color: _isListening
-                        ? AuraTheme.accentBlue
-                        : AuraTheme.textSecondary,
-                    fontSize: 11,
-                    letterSpacing: 2.5,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                 ),
               ),
-            ],
-          ),
-          Positioned(
-            right: 20,
-            bottom: 0,
-            child: IconButton(
-              icon: Icon(_isKeyboardMode ? Icons.mic_rounded : Icons.keyboard_rounded),
-              color: AuraTheme.textSecondary,
-              onPressed: () => setState(() => _isKeyboardMode = !_isKeyboardMode),
             ),
-          ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => setState(() => _isKeyboardMode = false),
+              icon: const Icon(Icons.mic_none_rounded, size: 18, color: AuraTheme.accentBlue),
+              label: const Text("SWITCH TO VOICE", style: TextStyle(color: AuraTheme.accentBlue, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.keyboard_rounded, color: AuraTheme.textSecondary),
+                  onPressed: () => setState(() => _isKeyboardMode = true),
+                ),
+                const SizedBox(width: 8),
+                Text(statusLabel, style: TextStyle(color: AuraTheme.textSecondary.withOpacity(0.6), fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 48), // Balance the row
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
+

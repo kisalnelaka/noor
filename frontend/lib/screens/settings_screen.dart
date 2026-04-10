@@ -20,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _voiceResponseEnabled = true;
   String _serverUrl = AuraConfig.baseUrl;
   String _responseSpeed = 'Instant';
+  String _userName = 'User';
 
   bool _loading = true;
 
@@ -38,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _voiceResponseEnabled = prefs.getBool('voice_response') ?? true;
       _serverUrl = prefs.getString('server_url') ?? AuraConfig.baseUrl;
       _responseSpeed = prefs.getString('response_speed') ?? 'Instant';
+      _userName = prefs.getString('user_full_name') ?? 'User';
       _loading = false;
     });
   }
@@ -140,6 +142,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
 
+              // 🎙️ NOOR V5: VOICE IDENTIFICATION
+              _tile(
+                icon: Icons.graphic_eq_rounded,
+                title: _t('Voice Recognition Profile', 'ملف تعريف الصوت'),
+                subtitle: _t('Train NOOR to recognize your voice', 'درب نور على التعرف على صوتك'),
+                onTap: () => _showVoiceTraining(),
+              ),
+
               // Response Speed
               _tile(
                 icon: Icons.speed_rounded,
@@ -236,7 +246,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _infoRow(_t('Name', 'الاسم'), 'Kisal Nelaka'),
+                      _infoRow(_t('Name', 'الاسم'), _userName),
                       _infoRow(_t('Tier', 'الفئة'), _t('NOOR Premium Elite', 'نور النخبة المميزة')),
                       _infoRow(_t('QID Status', 'حالة القطرية'), _t('Verified ✓', 'تم التحقق ✓')),
                     ],
@@ -532,6 +542,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showVoiceTraining() {
+    int step = 0;
+    final phrases = [
+      _t('Hi NOOR, it is me.', 'يا نور، هذا أنا.'),
+      _t('My name is $_userName.', 'اسمي هو $_userName.'),
+      _t('Show me properties in West Bay.', 'أرني العقارات في الخليج الغربي.'),
+      _t('Navigate to my apartment.', 'وجهني إلى شقتي.'),
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AuraTheme.background,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.mic_none_rounded, color: AuraTheme.accentBlue, size: 48),
+              const SizedBox(height: 24),
+              Text(_t('Voice Training', 'تدريب الصوت'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AuraTheme.textPrimary)),
+              const SizedBox(height: 12),
+              Text(
+                _t('Speak the phrase below clearly into your microphone.', 'انطق العبارة أدناه بوضوح في الميكروفون.'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AuraTheme.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 40),
+              
+              if (step < phrases.length) ...[
+                Text(phrases[step], style: const TextStyle(fontSize: 18, color: AuraTheme.accentBlue, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 40),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AuraTheme.accentBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                  ),
+                  onPressed: () {
+                    HapticFeedback.heavyImpact();
+                    setModalState(() => step++);
+                    if (step == phrases.length) {
+                       Future.delayed(const Duration(seconds: 1), () => Navigator.pop(context));
+                    }
+                  },
+                  child: Text(_t('RECORD PHASE', 'تسجيل المرحلة')),
+                ),
+              ] else ...[
+                 const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 48),
+                 const SizedBox(height: 16),
+                 Text(_t('Identification Profile Locked', 'تم قفل ملف التعريف'), style: const TextStyle(color: Colors.greenAccent)),
+              ],
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );

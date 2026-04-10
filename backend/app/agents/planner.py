@@ -4,47 +4,37 @@ from .states import AgentState
 async def planner_node(state: AgentState) -> Dict[str, Any]:
     """
     Planner Agent Node.
-    Analyzes user input and creates a step-by-step execution plan.
-    Currently mocked for architectural setup.
+    Analyzes intent and establishes the multi-step execution chain.
     """
     user_input = state["user_input"].lower()
+    session_id = state.get("session_id", "demo")
     
-    print(f"[Planner] Analyzing: {user_input}")
+    # 🔍 TRACE: Advanced Logging for Debugging
+    print(f"--- [PLANNER] ---")
+    print(f"Session: {session_id}")
+    print(f"Input: {user_input}")
+    print(f"Last Property: {state.get('last_property_id')}")
     
     plan = []
     
-    # 🧠 Context Resolution (V2 Memory)
-    if any(k in user_input for k in ["it", "that", "its", "there", "this property"]):
-        if state.get("last_property_id"):
-            print(f"[Planner] Context found: resolving 'it' to {state['last_property_id']}")
-            # Force SQL or Vector based on typical context queries
-            if any(k in user_input for k in ["rent", "price", "where", "address"]):
-                plan.append("query_sql_db")
-            if any(k in user_input for k in ["permit", "lease", "policy", "rules"]):
-                plan.append("query_vector_db")
-
-    # SQL Heuristics (Structured Data)
-    sql_keywords = [
-        "rent", "price", "property", "list", "available", "where", "doha", "west bay", "lusail",
-        "address", "location", "floor", "sqft", "area", "bedroom", "bathroom", "amenities",
-        "gym", "pool", "parking", "view", "balcony", "furnished", "near", "street", "building"
-    ]
-    if any(k in user_input for k in sql_keywords) and "query_sql_db" not in plan:
+    # Heuristics for intent detection
+    if any(k in user_input for k in ["direction", "navigate", "how to go", "where is", "map", "take me", "ارشادات", "طريق", "خريطة", "وصول", "كيف اصل", "اين", "موقع", "اتجاهات", "خذني"]):
+        print(f"[Planner] Intent: NAVIGATION")
+        plan.append("query_sql_db") # Need to get property coords if they aren't in memory
+        
+    elif any(k in user_input for k in ["rent", "price", "property", "available", "show me", "al sadd", "west bay", "lusail", "عقار", "عقارات", "ايجار", "سعر", "متوفر", "ارني"]):
+        print(f"[Planner] Intent: PROPERTY_SEARCH")
         plan.append("query_sql_db")
         
-    # Vector Heuristics (Unstructured Data)
-    vector_keywords = [
-        "permit", "lease", "policy", "rule", "pet", "termination", "penalty", "zoning", "terms",
-        "agreement", "contract", "obligation", "deposit", "notice", "period", "maintenance",
-        "repair", "late fee", "guest", "smoking", "sublet", "renovation", "summary"
-    ]
-    if any(k in user_input for k in vector_keywords) and "query_vector_db" not in plan:
+    elif any(k in user_input for k in ["rule", "policy", "lease", "agreement", "contract", "terms", "pet", "smoking"]):
+        print(f"[Planner] Intent: KNOWLEDGE_RETRIEVAL")
         plan.append("query_vector_db")
         
     if not plan:
-        # Default fallback
-        plan = ["query_sql_db"]
+        print(f"[Planner] Intent: GENERAL_CONVERSATION")
+        plan = ["query_sql_db"] # Always keep SQL for context matching
         
+    print(f"Active Plan: {plan}")
     return {
         "plan": plan,
         "current_step": 0,

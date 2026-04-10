@@ -61,8 +61,8 @@ class _VoiceOrbState extends State<VoiceOrb> with TickerProviderStateMixin {
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
             curve: Curves.easeInOutBack,
-            width: effectiveState == OrbState.listening ? 140 : 110,
-            height: effectiveState == OrbState.listening ? 140 : 110,
+            width: effectiveState == OrbState.listening ? 180 : 160,
+            height: effectiveState == OrbState.listening ? 180 : 160,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
@@ -95,8 +95,8 @@ class _VoiceOrbState extends State<VoiceOrb> with TickerProviderStateMixin {
         return Opacity(
           opacity: (1.0 - _pulseController.value) * 0.5,
           child: Container(
-            width: 180 * scale,
-            height: 180 * scale,
+            width: 240 * scale,
+            height: 240 * scale,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -158,7 +158,7 @@ class _VoiceOrbState extends State<VoiceOrb> with TickerProviderStateMixin {
               child: const Icon(
                 Icons.mic_none_rounded,
                 color: Colors.white,
-                size: 40,
+                size: 56,
               ),
             );
           },

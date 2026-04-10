@@ -23,6 +23,7 @@ class AgentState(TypedDict):
     
     # Final artifacts sent to frontend
     final_response: str      # Response to send to TTS
+    translation: str         # Arabic/English translation of response
     ui_commands: List[dict]  # JSON commands for Flutter
     
     # Session Memory (V2)

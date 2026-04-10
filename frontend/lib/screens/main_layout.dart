@@ -4,6 +4,7 @@ import 'package:noor/screens/dashboard_screen.dart';
 import 'package:noor/screens/portfolio_screen.dart';
 import 'package:noor/theme.dart';
 import 'package:flutter/services.dart';
+import 'package:noor/services/voice_interface_service.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({Key? key}) : super(key: key);
@@ -94,37 +95,51 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _buildNoorOrb() {
     final isSelected = _currentIndex == 1;
+    final voiceService = VoiceInterfaceService();
+    
     return GestureDetector(
-      onTap: () => _onItemTapped(1),
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          color: isSelected ? AuraTheme.accentBlue : Colors.white,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: isSelected ? Colors.transparent : AuraTheme.borderLight,
-            width: 2,
-          ),
-          boxShadow: isSelected ? [
-            BoxShadow(
-              color: AuraTheme.accentBlue.withOpacity(0.4),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            )
-          ] : [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Icon(
-          Icons.graphic_eq_rounded,
-          color: isSelected ? Colors.white : AuraTheme.accentBlue,
-          size: 28,
-        ),
+      onTap: () {
+        if (_currentIndex == 1) {
+          voiceService.start(); // 🎙️ Trigger AI Recording session
+        } else {
+          _onItemTapped(1); // Navigate to AI
+        }
+      },
+      child: ValueListenableBuilder<bool>(
+        valueListenable: voiceService.isListening,
+        builder: (context, listening, child) {
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: listening ? 88 : 80, // Enlarge during listening
+            height: listening ? 88 : 80,
+            decoration: BoxDecoration(
+              color: isSelected ? AuraTheme.accentBlue : Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected ? (listening ? Colors.white : Colors.transparent) : AuraTheme.borderLight,
+                width: listening ? 4 : 2,
+              ),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: AuraTheme.accentBlue.withOpacity(0.4),
+                  blurRadius: listening ? 32 : 16,
+                  offset: const Offset(0, 8),
+                )
+              ] : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Icon(
+              listening ? Icons.mic_rounded : Icons.graphic_eq_rounded,
+              color: isSelected ? Colors.white : AuraTheme.accentBlue,
+              size: listening ? 40 : 36,
+            ),
+          );
+        }
       ),
     );
   }

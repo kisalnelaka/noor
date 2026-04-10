@@ -95,11 +95,13 @@ echo =================================================================
 echo.
 echo  [Step 1/3] 🧹 Sweeping legacy containers and freeing ports...
 docker compose down >nul 2>&1
+timeout /t 3 >nul
 
 echo.
 echo  [Step 2/3] 🔓 Releasing database locks for Docker...
-if exist "backend\noor.db" del /f /q "backend\noor.db"
-if exist "backend\aura.db" del /f /q "backend\aura.db"
+if exist "backend\noor.db" del /f /q "backend\noor.db" 2>nul
+if exist "backend\noor.db-wal" del /f /q "backend\noor.db-wal" 2>nul
+if exist "backend\noor.db-shm" del /f /q "backend\noor.db-shm" 2>nul
 
 echo.
 echo  [Step 3/3] 🏗️ Engineering NOOR core images (Redis, Qdrant, API)...

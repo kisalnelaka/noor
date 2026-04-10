@@ -200,9 +200,9 @@ class _PropertyCardState extends State<PropertyCard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _insightItem("INVESTMENT ROI", widget.propertyData['roi'] ?? "6.4%", Icons.trending_up, Colors.teal),
+              _insightItem("LIFESTYLE RATING", "9.8/10", Icons.star_rounded, Colors.amber),
               const VerticalDivider(color: AuraTheme.borderLight),
-              _insightItem("YIELD (ANNUAL)", widget.propertyData['yield'] ?? "QAR 180k", Icons.account_balance_wallet_outlined, AuraTheme.accentBlue),
+              _insightItem("NEIGHBORHOOD SCORE", "ELITE", Icons.verified_user_rounded, AuraTheme.accentBlue),
             ],
           ),
           const Divider(height: 24, color: AuraTheme.borderLight),
