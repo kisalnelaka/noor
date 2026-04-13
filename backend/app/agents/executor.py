@@ -35,12 +35,13 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
             break
 
     if step_type == "query_sql_db":
-        base_select = "'prop_' || p.id as id, p.name, p.address as location, p.latitude as lat, p.longitude as lng, min(u.rent_price) as price, 'Elite Amenities' as pois"
+        base_select = "'prop_' || p.id::text as id, p.name, p.address as location, p.latitude as lat, p.longitude as lng, min(u.rent_amount) as price, 'Elite Amenities' as pois"
         
         if is_navigation:
             target_id = context_property_id or "prop_1"
             raw_id = target_id.split("_")[1] if "_" in target_id else target_id
-            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE p.id = '{raw_id}' GROUP BY p.id"
+            # Using cast ::text for UUID comparison safety
+            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE p.id::text = '{raw_id}' GROUP BY p.id"
             tool_output = query_sql_database.run(sql)
             try:
                 p_data = json.loads(tool_output)[0]
@@ -48,15 +49,13 @@ async def executor_node(state: AgentState) -> Dict[str, Any]:
                 tool_output = f"TRIGGERED_NAVIGATION: {p_data['name']}"
             except: tool_output = "Property found but coordinates unavailable."
         elif district:
-            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE LOWER(p.address) LIKE '%{district}%' GROUP BY p.id LIMIT 3"
+            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE (LOWER(p.address) LIKE '%{district}%' OR LOWER(p.city) LIKE '%{district}%') GROUP BY p.id LIMIT 3"
             tool_output = query_sql_database.run(sql)
         elif context_property_id and not district:
-            # Handle generic follow-up queries that implicitly reference the active property
             raw_id = context_property_id.split("_")[1] if "_" in context_property_id else context_property_id
-            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE p.id = '{raw_id}' GROUP BY p.id"
+            sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id WHERE p.id::text = '{raw_id}' GROUP BY p.id"
             tool_output = query_sql_database.run(sql)
             
-            # If the user is specifically asking for *other* or *more* properties across the board, fall back slightly
             if "other" in user_input or "more properties" in user_input:
                  sql = f"SELECT {base_select} FROM properties p JOIN units u ON p.id = u.property_id GROUP BY p.id LIMIT 5"
                  tool_output += "\n" + query_sql_database.run(sql)

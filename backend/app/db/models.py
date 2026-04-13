@@ -1,85 +1,124 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Numeric, Text
+from sqlalchemy.dialects.postgresql import UUID, JSONB as JSON
 from sqlalchemy.orm import declarative_base, relationship
 import datetime
+import uuid
 
 Base = declarative_base()
+
+class Organization(Base):
+    __tablename__ = 'organizations'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True)
+    domain = Column(String(255))
+    digital_payments_enabled = Column(Boolean, default=True)
+    
+    users = relationship("User", back_populates="organization")
+    properties = relationship("Property", back_populates="organization")
 
 class User(Base):
     __tablename__ = 'users'
     
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-    full_name = Column(String, nullable=True)
-    priorities = Column(String, default="Standard")
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, index=True)
+    password = Column(String(255))
+    type = Column(String(50))  # superadmin, admin, manager, tenant, vendor
+    status = Column(String(50), default='active')
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
-    favorites = relationship("Favorite", back_populates="user")
-
-class Favorite(Base):
-    __tablename__ = 'favorites'
+    # NOOR-specific extensions
+    priorities = Column(String(255), nullable=True)
     
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
-    property_id = Column(Integer, ForeignKey('properties.id'))
-    
-    user = relationship("User", back_populates="favorites")
-    property = relationship("Property")
+    organization = relationship("Organization", back_populates="users")
+    leases = relationship("Lease", back_populates="tenant")
 
 class Property(Base):
     __tablename__ = 'properties'
     
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    address = Column(String)
-    zone_number = Column(Integer, nullable=True)
-    street_number = Column(Integer, nullable=True)
-    building_number = Column(Integer, nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    name = Column(String(255), index=True)
+    address = Column(Text)
+    city = Column(String(255))
+    type = Column(String(255), default='residential') # commercial, apartment, residential
+    description = Column(Text)
     
-    # Replaced PostGIS geometry with flat coordinates for SQLite compatibility
     latitude = Column(Float)
     longitude = Column(Float)
     
-    zoning_type = Column(String)
-    is_active = Column(Boolean, default=True)
-    image_url = Column(String, nullable=True)
-    furnished_image_url = Column(String, nullable=True)
-    tour_url = Column(String, nullable=True)
+    image_url = Column(String(255), nullable=True)
+    gallery = Column(JSON, nullable=True)
+    amenities = Column(JSON, nullable=True)
     
+    organization = relationship("Organization", back_populates="properties")
     units = relationship("Unit", back_populates="property")
 
 class Unit(Base):
     __tablename__ = 'units'
     
-    id = Column(Integer, primary_key=True, index=True)
-    property_id = Column(Integer, ForeignKey('properties.id'))
-    unit_number = Column(String)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    property_id = Column(UUID(as_uuid=True), ForeignKey('properties.id'))
+    unit_number = Column(String(255))
     bedrooms = Column(Integer)
-    bathrooms = Column(Float)
-    rent_price = Column(Float)
-    lease_end = Column(DateTime, nullable=True)
-    pets_allowed = Column(Boolean, default=False)
+    bathrooms = Column(Integer)
+    size_sqft = Column(Integer)
+    rent_amount = Column(Numeric(12, 2))
+    status = Column(String(255), default='available') # available, occupied, maintenance
+    
+    image_url = Column(String(255), nullable=True)
+    gallery = Column(JSON, nullable=True)
     
     property = relationship("Property", back_populates="units")
+    leases = relationship("Lease", back_populates="unit")
 
-class Booking(Base):
-    __tablename__ = 'bookings'
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
-    property_id = Column(Integer, ForeignKey('properties.id'))
-    booking_time = Column(String) 
-    status = Column(String, default="Pending")
-    notes = Column(String, nullable=True)
+class Lease(Base):
+    __tablename__ = 'leases'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    property_id = Column(UUID(as_uuid=True), ForeignKey('properties.id'))
+    unit_id = Column(UUID(as_uuid=True), ForeignKey('units.id'))
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
+    
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+    rent_amount = Column(Numeric(12, 2))
+    status = Column(String(50)) # active, expired, terminated
+    
+    tenant = relationship("User", back_populates="leases")
+    unit = relationship("Unit", back_populates="leases")
+    invoices = relationship("Invoice", back_populates="lease")
 
-class NeighborhoodPOI(Base):
-    __tablename__ = 'neighborhood_pois'
-    id = Column(Integer, primary_key=True, index=True)
-    property_id = Column(Integer, ForeignKey('properties.id')) 
-    district_name = Column(String) 
-    name = Column(String)
-    poi_type = Column(String) 
-    distance_meters = Column(Integer, default=500)
-    distance_description = Column(String)
-    perks = Column(String, nullable=True) # JSON representation
+class Invoice(Base):
+    __tablename__ = 'invoices'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    lease_id = Column(UUID(as_uuid=True), ForeignKey('leases.id'))
+    
+    amount = Column(Numeric(12, 2))
+    due_date = Column(DateTime)
+    status = Column(String(50)) # paid, pending, void
+    
+    lease = relationship("Lease", back_populates="invoices")
 
-    property = relationship("Property")
+class MaintenanceRequest(Base):
+    __tablename__ = 'maintenance_requests'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey('organizations.id'))
+    property_id = Column(UUID(as_uuid=True), ForeignKey('properties.id'))
+    unit_id = Column(UUID(as_uuid=True), ForeignKey('units.id'))
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
+    
+    title = Column(String(255))
+    description = Column(Text)
+    category = Column(String(100))
+    cost = Column(Numeric(12, 2), nullable=True)
+    priority = Column(String(50)) # high, medium, low
+    status = Column(String(50)) # pending, in_progress, completed

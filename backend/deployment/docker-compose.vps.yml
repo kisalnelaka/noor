@@ -1,0 +1,26 @@
+services:
+  noor-backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: noor-backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://tenancyos:tenancyos1@db:5432/tenancyos
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ENVIRONMENT=production
+    networks:
+      - tenancy-net
+    ports:
+      - "8005:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/properties/featured"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  tenancy-net:
+    external: true
+    name: deployment_tenancyos-net

@@ -161,11 +161,26 @@ async def websocket_endpoint(websocket: WebSocket):
                     return
                     
                 audio_bytes = base64.b64decode(payload.get("audio_b64", ""))
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as tmp_audio:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
                     tmp_audio.write(audio_bytes)
                     tmp_audio_path = tmp_audio.name
-                    
-                if whisper_model:
+                
+                groq_key = os.getenv("GROQ_API_KEY")
+                if groq_key:
+                    from groq import Groq
+                    print("[NOOR] Using Groq API for STT...", flush=True)
+                    client = Groq(api_key=groq_key)
+                    with open(tmp_audio_path, "rb") as file:
+                        transcription = client.audio.transcriptions.create(
+                            file=(tmp_audio_path, file.read()),
+                            model="whisper-large-v3",
+                            prompt="Qatar, Doha, Lusail, West Bay, The Pearl, NOOR, عقارات, قطر, لوسيل",
+                            response_format="text",
+                            language="ar" if is_arabic else None # Auto-detecting mostly
+                        )
+                    content = transcription
+                    session_state["current_language"] = "ar" if any(c in content for c in "بضصفغعهخحجدذرزسشصضطظعغفقكلمنهوي") else "en"
+                elif whisper_model:
                     t0_stt = time.time()
                     segments, info = await asyncio.to_thread(
                         whisper_model.transcribe, tmp_audio_path, beam_size=1, vad_filter=True,
@@ -174,8 +189,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     t_stt = time.time() - t0_stt
                     session_state["current_language"] = info.language if info.language in ["ar", "en"] else "en"
                     content = " ".join([s.text for s in segments])
-                    await websocket.send_json({"type": "user_transcription", "text": content})
-                    os.unlink(tmp_audio_path)
+                
+                await websocket.send_json({"type": "user_transcription", "text": content})
+                if os.path.exists(tmp_audio_path): os.unlink(tmp_audio_path)
             
             elif payload.get("type") == "chat":
                 content = payload.get("text", "")
