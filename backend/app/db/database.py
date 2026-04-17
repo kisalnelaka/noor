@@ -1,10 +1,11 @@
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = "sqlite:///./noor.db"
+import os
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./noor.db")
 engine = create_engine(
     DATABASE_URL, 
-    connect_args={"check_same_thread": False, "timeout": 35}
+    connect_args={"check_same_thread": False, "timeout": 35} if "sqlite" in DATABASE_URL else {}
 )
 
 @event.listens_for(engine, "connect")

@@ -68,29 +68,29 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     
     new_user = User(
         email=req.email,
-        hashed_password=req.password, # For demo, raw storage
-        full_name=req.full_name
+        password=req.password, # For demo, raw storage
+        name=req.full_name
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return {"access_token": f"token_{new_user.id}", "full_name": new_user.full_name}
+    return {"access_token": f"token_{new_user.id}", "full_name": new_user.name}
 
 @app.post("/auth/login")
 async def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     from app.db.models import User
     user = db.query(User).filter(User.email == username).first()
-    if user and user.hashed_password == password:
-        return {"access_token": f"token_{user.id}", "full_name": user.full_name}
+    if user and user.password == password:
+        return {"access_token": f"token_{user.id}", "full_name": user.name}
     return {"detail": "Invalid credentials", "statusCode": 401}
 
 @app.get("/user/portfolio")
 async def get_portfolio(db: Session = Depends(get_db)):
     # In a full app, we'd use the access token. 
     # For this demo/walkthrough, we fetch the first user or default.
-    from app.db.models import User, Booking
+    from app.db.models import User
     user = db.query(User).first()
-    name = user.full_name if user else "Noor User"
+    name = user.name if user else "Noor User"
     email = user.email if user else "demo@noor.qa"
     
     return {

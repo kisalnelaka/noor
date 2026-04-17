@@ -32,7 +32,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo [3/3] Exporting APK to Aura Root...
+echo [3/3] Exporting APK to NOOR Root...
 set APK_SOURCE=build\app\outputs\flutter-apk\app-release.apk
 set APK_DEST=..\NOOR.apk
 

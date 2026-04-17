@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Numeric, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB as JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Numeric, Text, UUID, JSON
 from sqlalchemy.orm import declarative_base, relationship
 import datetime
 import uuid
@@ -121,4 +120,16 @@ class MaintenanceRequest(Base):
     category = Column(String(100))
     cost = Column(Numeric(12, 2), nullable=True)
     priority = Column(String(50)) # high, medium, low
-    status = Column(String(50)) # pending, in_progress, completed
+class Booking(Base):
+    __tablename__ = 'bookings'
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID, ForeignKey('users.id'))
+    property_id = Column(UUID, ForeignKey('properties.id'))
+    time = Column(DateTime)
+    status = Column(String(50), default='pending')
+
+class Favorite(Base):
+    __tablename__ = 'favorites'
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID, ForeignKey('users.id'))
+    property_id = Column(UUID, ForeignKey('properties.id'))

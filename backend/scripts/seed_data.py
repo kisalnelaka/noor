@@ -20,10 +20,9 @@ def seed_db():
         # 1. Create Demo User
         print("[Seeder] Creating demo user: Kisal Nelaka...")
         demo_user = User(
-            id=1,
-            full_name="Kisal Nelaka",
+            name="Kisal Nelaka",
             email="demo@noor.qa",
-            hashed_password="noor2026", 
+            password="noor2026", 
             priorities="Lifestyle & Premium Service"
         )
         db.add(demo_user)
@@ -49,14 +48,11 @@ def seed_db():
             p_name = f"{random.choice(adjectives)} {random.choice(property_types)} {i}"
             
             prop = Property(
-                id=i,
                 name=p_name,
                 address=f"{district_name} Phase {random.randint(1,5)}, Doha",
                 latitude=dist_data["lat"] + (random.uniform(-0.002, 0.002)),
                 longitude=dist_data["lng"] + (random.uniform(-0.002, 0.002)),
-                is_active=True,
-                image_url=f"https://images.unsplash.com/photo-{1580587767303 + (i % 10)}?auto=format&fit=crop&q=80&w=1200",
-                zoning_type="Premium Residential"
+                image_url=f"https://images.unsplash.com/photo-{1580587767303 + (i % 10)}?auto=format&fit=crop&q=80&w=1200"
             )
             db.add(prop)
             all_props.append(prop)
@@ -65,13 +61,11 @@ def seed_db():
             for j in range(1, random.randint(3, 5)):
                 price = float(random.randint(8000, 45000))
                 unit = Unit(
-                    id=(i * 100) + j,
                     property_id=prop.id,
                     unit_number=f"{random.randint(10, 40)}{random.choice(['A', 'B', 'C'])}",
-                    rent_price=price,
+                    rent_amount=price,
                     bedrooms=random.randint(1, 4),
-                    bathrooms=float(random.randint(1, 3)),
-                    pets_allowed=True
+                    bathrooms=float(random.randint(1, 3))
                 )
                 db.add(unit)
 
